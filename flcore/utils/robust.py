@@ -23,26 +23,25 @@ class RobustFn(ABC):
 
 
 class Krum(RobustFn):
-    def __init__(self, *, num_corrupted: int = 1, num_select: int = 1):
-        assert num_corrupted >= 0
+    def __init__(self, *, num_remove: int, num_select: int):
+        assert num_remove > 0
         assert num_select > 0
-        self.num_corrupted = num_corrupted
+        self.num_remove = num_remove
         self.num_select = num_select
 
     @torch.no_grad()
     def __call__(
             self, model_infos: Sequence[model_utils.ModelInfo], global_model: nn.Module
     ) -> list[model_utils.ModelInfo]:
-        if not len(model_infos) > 2 * self.num_corrupted + 2:
-            warnings.warn(f"The number of aggregated clients is smaller than 2 * f + 2 ({2 * self.num_corrupted + 2}), "
+        if not len(model_infos) - (2 * self.num_remove + 2) >= self.num_select:
+            warnings.warn(f"The number of aggregated clients is smaller than 2 * f + 2 ({2 * self.num_remove + 2}), "
                           f"which not satisfy Krum/MultiKrum need.")
 
-        if len(model_infos) <= self.num_corrupted:
-            raise ValueError("Can't select a model when malicious models are more than aggregated models.")
+        if len(model_infos) < self.num_remove + self.num_select:
+            raise ValueError(f"Can't select {self.num_select} models and remove {self.num_remove} models "
+                             f"when there are {len(model_infos)} models only.")
 
-        if len(model_infos) < self.num_select:
-            raise ValueError(f"Can's select {self.num_select} models when {len(model_infos)} models only.")
-
+        sum_weight = self.sum_weight(model_infos)
         model_infos = list(model_infos)
 
         # multi-krum
@@ -52,8 +51,7 @@ class Krum(RobustFn):
             selects.append(model_infos.pop(index))
 
         # Reset weights
-        sum_weight = self.sum_weight(model_infos)
-        model_infos = [model_utils.ModelInfo(info.model, 1.0 / sum_weight) for info in selects]
+        model_infos = [model_utils.ModelInfo(info.model, sum_weight * 1 / len(model_infos)) for info in selects]
 
         # Let model_utils.aggregate_parameters() to aggregate
         return model_infos
@@ -65,7 +63,7 @@ class Krum(RobustFn):
         distances = [torch.stack([vector.dist(other) for other in vectors]) for vector in vectors]
 
         # Calculate their scores
-        num_select = len(model_infos) - self.num_corrupted - 2
+        num_select = len(model_infos) - self.num_remove - 2
         # torch.sort() return a 2-element tuple, we only need 0th.
         # The 0th is the distance between itself in the sorted distances
         scores = [distance.sort()[0][1:num_select + 1].sum() for distance in distances]
@@ -78,7 +76,7 @@ class Krum(RobustFn):
 
 class TrimmedMean(RobustFn):
     def __init__(self, *, num_remove: int):
-        assert num_remove >= 0
+        assert num_remove > 0
         self.num_remove = num_remove
 
     @torch.no_grad()
@@ -97,12 +95,14 @@ class TrimmedMean(RobustFn):
     def _trimmed_mean(self, *params: torch.Tensor) -> torch.Tensor:
         # Calculate parameters median and set it to median_model
         stacked_params = torch.stack(params)  # Stack for tensor calculate
-        median = stacked_params.median(dim=0)[0]  # Median value along side stack dimension
-        median = median.expand(stacked_params.size())  # Propagate to make process clear
-        # Select len(model_infos) - self.num_remove models that close to median (element-wise)
+        median = stacked_params.median(dim=0, keepdim=True)[0]  # Median value along side stack dimension
+        # Select len(model_infos) - self.num_remove update delta that close to median (element-wise)
         selects = (stacked_params - median).abs().sort(dim=0)[0][: - self.num_remove]
         # Aggregate
-        return selects.mean(dim=0)
+        selects = median + selects.mean(dim=0)
+        selects.squeeze_()
+
+        return selects
 
 
 class Median(RobustFn):
@@ -120,18 +120,19 @@ class Median(RobustFn):
 
 
 class Bulyan(RobustFn):
-    def __init__(self, *, num_corrupted: int = 1):
-        self.num_corrupted = num_corrupted
+    def __init__(self, *, num_remove: int):
+        assert num_remove > 0
+        self.num_remove = num_remove
 
     def __call__(
             self, model_infos: Sequence[model_utils.ModelInfo], global_model: nn.Module
     ) -> list[model_utils.ModelInfo]:
-        if not len(model_infos) >= 4 * self.num_corrupted + 3:
-            warnings.warn(f"The number of aggregated clients is smaller than 4 * f + 3 ({4 * self.num_corrupted + 3}), "
+        if not len(model_infos) >= 4 * self.num_remove + 3:
+            warnings.warn(f"The number of aggregated clients is smaller than 4 * f + 3 ({4 * self.num_remove + 3}), "
                           f"which not satisfy Bulyan need.")
 
-        krum = Krum(num_corrupted=self.num_corrupted, num_select=len(model_infos) - 2 * self.num_corrupted)
-        trimmed_mean = TrimmedMean(num_remove=2 * self.num_corrupted)
+        krum = Krum(num_remove=self.num_remove, num_select=len(model_infos) - 2 * self.num_remove)
+        trimmed_mean = TrimmedMean(num_remove=2 * self.num_remove)
 
         model_infos = krum(model_infos, global_model)
         model_infos = trimmed_mean(model_infos, global_model)
