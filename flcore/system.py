@@ -61,8 +61,17 @@ class FederatedLearning(ABC):
             self._set_system_low_memory()
 
     @abstractmethod
-    def run(self):
+    def algorithm(self) -> nn.Module:
         ...
+
+    def run(self):
+        if len(self.server.registered_clients) == 0:
+            raise ValueError("There are no registered clients in server.")
+
+        with self.progress:
+            model = self.algorithm()
+
+        return model
 
     def log(self, log_item: LogItem, *, big_item: bool = False, filename: str = None):
         self.progress.log(log_item)

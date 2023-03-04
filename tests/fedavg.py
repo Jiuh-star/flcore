@@ -67,38 +67,35 @@ class FedAvg(flcore.FederatedLearning):
         super().__init__(server=server, log_dir=log_dir)
         self.checkpoints = checkpoints or []
 
-    def run(self):
-        assert len(self.server.registered_clients) > 0
+    def algorithm(self):
+        for global_epoch in self.progress(range(self.server.max_epoch), "Global Epoch"):
+            # select client to train
+            selected_clients = self.server.select_clients()
 
-        with self.progress:
-            for global_epoch in self.progress(range(self.server.max_epoch), "Global Epoch"):
-                # select client to train
-                selected_clients = self.server.select_clients()
+            # train local models
+            for client in self.progress(selected_clients, "Trained Client"):
+                client.receive_model(self.server.model)
 
-                # train local models
-                for client in self.progress(selected_clients, "Trained Client"):
-                    client.receive_model(self.server.model)
+                for local_epoch in self.progress(range(client.max_epoch), "Local Epoch"):
+                    client.train(client.train_dataloader)
 
-                    for local_epoch in self.progress(range(client.max_epoch), "Local Epoch"):
-                        client.train(client.train_dataloader)
+            self.server.aggregate(clients=selected_clients, weights=None, robust_fn=self.server.robust_fn)
 
-                self.server.aggregate(clients=selected_clients, weights=None, robust_fn=self.server.robust_fn)
+            # evaluate
+            evaluation = self.server.evaluate()
 
-                # evaluate
-                evaluation = self.server.evaluate()
+            # log
+            self.log(flcore.LogItem(epoch=global_epoch, metrics=evaluation))
+            # checkpoint for replay
+            if global_epoch in self.checkpoints:
+                self.save_replay(flcore.Replay(logbook=self.logbook,
+                                               clients=self.server.registered_clients,
+                                               model=self.server.model))
 
-                # log
-                self.log(flcore.LogItem(epoch=global_epoch, metrics=evaluation))
-                # checkpoint for replay
-                if global_epoch in self.checkpoints:
-                    self.save_replay(flcore.Replay(logbook=self.logbook,
-                                                   clients=self.server.registered_clients,
-                                                   model=self.server.model))
+        evaluation = self.server.test()
 
-            evaluation = self.server.test()
-
-            # save the results
-            self.log(flcore.LogItem(epoch=global_epoch, metrics=evaluation, others={
+        # save the results
+        self.log(flcore.LogItem(epoch=global_epoch, metrics=evaluation, others={
                 "global_model": self.server.model,
             }), big_item=True, filename="model.pth")
 
@@ -142,7 +139,7 @@ def main():
         )
         server.register_client(client)
 
-    system.run()
+    system.algorithm()
 
 
 if __name__ == '__main__':
