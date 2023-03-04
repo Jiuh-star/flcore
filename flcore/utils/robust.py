@@ -93,16 +93,11 @@ class TrimmedMean(RobustFn):
 
     @torch.no_grad()
     def _trimmed_mean(self, *params: torch.Tensor) -> torch.Tensor:
-        # Calculate parameters median and set it to median_model
-        stacked_params = torch.stack(params)  # Stack for tensor calculate
-        median = stacked_params.median(dim=0, keepdim=True)[0]  # Median value along side stack dimension
-        # Select len(model_infos) - self.num_remove update delta that close to median (element-wise)
-        selects = (stacked_params - median).abs().sort(dim=0)[0][: - self.num_remove]
-        # Aggregate
-        selects = median + selects.mean(dim=0)
-        selects.squeeze_()
-
-        return selects
+        remove_left = self.num_remove // 2
+        remove_right = self.num_remove - remove_left
+        # Aggregate ahead of time
+        trimmed_mean = torch.stack(params).sort(dim=0)[0][remove_left: -remove_right].mean(dim=0)
+        return trimmed_mean
 
 
 class Median(RobustFn):
