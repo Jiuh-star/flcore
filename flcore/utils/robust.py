@@ -51,7 +51,8 @@ class Krum(RobustFn):
             selects.append(model_infos.pop(index))
 
         # Reset weights
-        model_infos = [model_utils.ModelInfo(info.model, sum_weight * 1 / len(model_infos)) for info in selects]
+        weight = sum_weight / len(selects)
+        model_infos = [model_utils.ModelInfo(info.model, weight) for info in selects]
 
         # Let model_utils.aggregate_parameters() to aggregate
         return model_infos
