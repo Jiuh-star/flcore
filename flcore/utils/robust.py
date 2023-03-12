@@ -17,10 +17,6 @@ class RobustFn(ABC):
     ) -> list[model_utils.ModelInfo]:
         ...
 
-    @staticmethod
-    def sum_weight(model_infos: Sequence[model_utils.ModelInfo]):
-        return sum([info.weight for info in model_infos])
-
 
 class Krum(RobustFn):
     def __init__(self, *, num_remove: int, num_select: int):
@@ -41,7 +37,6 @@ class Krum(RobustFn):
             raise ValueError(f"Can't select {self.num_select} models and remove {self.num_remove} models "
                              f"when there are {len(model_infos)} models only.")
 
-        sum_weight = self.sum_weight(model_infos)
         model_infos = list(model_infos)
 
         # multi-krum
@@ -51,8 +46,7 @@ class Krum(RobustFn):
             selects.append(model_infos.pop(index))
 
         # Reset weights
-        weight = sum_weight / len(selects)
-        model_infos = [model_utils.ModelInfo(info.model, weight) for info in selects]
+        model_infos = [model_utils.ModelInfo(info.model, 1.0 / len(selects)) for info in selects]
 
         # Let model_utils.aggregate_parameters() to aggregate
         return model_infos
@@ -88,7 +82,7 @@ class TrimmedMean(RobustFn):
             raise ValueError(f"Can't remove {self.num_remove} models when there are {len(model_infos)} models only.")
 
         global_model = model_utils.model_map(function=self._trimmed_mean, models=[info.model for info in model_infos])
-        model_infos = [model_utils.ModelInfo(global_model, self.sum_weight(model_infos))]
+        model_infos = [model_utils.ModelInfo(global_model, 1.0)]
 
         return model_infos
 
@@ -106,7 +100,7 @@ class Median(RobustFn):
             self, model_infos: Sequence[model_utils.ModelInfo], global_model: nn.Module
     ) -> list[model_utils.ModelInfo]:
         global_model = model_utils.model_map(function=self._median, models=[info.model for info in model_infos])
-        model_infos = [model_utils.ModelInfo(global_model, weight=self.sum_weight(model_infos))]
+        model_infos = [model_utils.ModelInfo(global_model, weight=1.0)]
         return model_infos
 
     @staticmethod

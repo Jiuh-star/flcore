@@ -26,26 +26,13 @@ def default_get_target(item: tuple[Feature, Target]) -> Target:
     return item[-1]
 
 
-def collect_targets(targets: Sequence[Target]) -> dict[Target, list[Target]]:
-    """
-    Collect and classify the targets to a dict. In dict, the keys are targets and value are corresponding indexes.
-
-    :param targets: A sequence of target.
-    :return: Collected targets.
-    """
-    target_indexes = {}
-    for index, target in enumerate(targets):
-        target_indexes.setdefault(target, []).append(index)
-    return target_indexes
-
-
 def get_targets(dataset: Dataset,
                 get_target: Callable[[Any], Target] = default_get_target) -> list[Target]:
     """
     Get targets from dataset.
 
     :param dataset: The dataset.
-    :param get_target: A function that receives an item from dataset and then return its target.
+    :param get_target: A callable that receives an item from dataset and then return its target.
     :return: A list of targets of dataset.
     """
     # dataset from torchvision has attribute targets
@@ -68,6 +55,19 @@ def get_targets(dataset: Dataset,
     return targets
 
 
+def collect_targets(targets: Sequence[Target]) -> dict[Target, list[Target]]:
+    """
+    Collect and classify the targets to a dict. In dict, the keys are targets and value are corresponding indexes.
+
+    :param targets: A sequence of target.
+    :return: Collected targets.
+    """
+    target_indexes = {}
+    for index, target in enumerate(targets):
+        target_indexes.setdefault(target, []).append(index)
+    return target_indexes
+
+
 def random_split(values: Sequence[T],
                  lengths: Sequence[int | float] = None,
                  fractions: Sequence[float] = None) -> list[list[T]]:
@@ -78,6 +78,8 @@ def random_split(values: Sequence[T],
     :param lengths: Lengths of subsequence. Should equals to len(values).
     :param fractions: Fractions of subsequence length. Should be closed to 1 enough.
     :return: A list of sublist of values.
+
+    :raises ValueError: If lengths or fractions are not legal.
     """
     if lengths and fractions:
         raise ValueError("Both lengths and fractions are specified, consider remove one.")
@@ -120,12 +122,28 @@ def partition_dataset(dataset: Dataset,
                       num_partition: int,
                       partition_func: Callable[[], list[float]],
                       get_target: Callable[[Any], Target] = default_get_target) -> list[data.Subset, ...]:
+    """
+    Partition dataset into *num_partition* parts, the lengths of the parts follow the return value of *partition_func*.
+
+    :param dataset: The dataset.
+    :param num_partition: The quantity of partition.
+    :param partition_func: A callable that return the partition of each class. The length of return should be equal to
+     num_partition.
+    :param get_target: A callable that receives an item from dataset and then return its target.
+    :return: A list of subsets.
+
+    :raises ValueError: If the length of partition_func didn't return the right fractions.
+    """
     targets = get_targets(dataset, get_target)
     target_indexes = collect_targets(targets)
     target_split_indexes = {}
 
     for target in target_indexes:
         fractions = partition_func()
+        if len(fractions) != num_partition:
+            raise ValueError(f"The length of partition_func() return ({len(fractions)}) "
+                             f"is not equal to num_partition ({num_partition}).")
+
         target_split_indexes[target] = random_split(target_indexes[target], fractions=fractions)
 
     # make subsets
@@ -146,6 +164,19 @@ def generate_dirichlet_subsets(dataset: Dataset,
                                get_target: Callable[[Any], Target] = default_get_target,
                                min_data: int = 10,
                                max_retry: int = 10) -> list[data.Subset, ...]:
+    """
+    Generate subsets that follow dirichlet distribution.
+
+    :param dataset: The source dataset.
+    :param alphas: The parameter of dirichlet distribution.
+    :param get_target: A callable that receives an item from dataset and then return its target.
+    :param min_data: The minimal dataset size of each subset.
+    :param max_retry: Max retry of sample from dirichlet distribution.
+    :return: The subsets that follow dirichlet distribution.
+
+    :raises TimeoutError: If unable to sample from dirichlet distribution within max_retry retries.
+    """
+
     def dirichlet() -> list[float]:
         m = distributions.Dirichlet(torch.tensor(alphas, dtype=torch.float))
         sample = m.sample().tolist()
@@ -166,7 +197,16 @@ def generate_dirichlet_subsets(dataset: Dataset,
 
 
 def generate_iid_subsets(dataset: Dataset,
-                         num_client: int,
+                         num_partition: int,
                          get_target: Callable[[Any], Target] = default_get_target) -> list[data.Subset, ...]:
-    return partition_dataset(dataset, num_partition=num_client, partition_func=lambda: [1 / num_client] * num_client,
+    """
+    Generate subsets that follow IID.
+
+    :param dataset: The source dataset.
+    :param num_partition: The quantity of partition, namely the number of clients.
+    :param get_target: A callable that receives an item from dataset and then return its target.
+    :return: An IID subsets.
+    """
+    return partition_dataset(dataset, num_partition=num_partition,
+                             partition_func=lambda: [1 / num_partition] * num_partition,
                              get_target=get_target)

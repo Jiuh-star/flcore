@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pathlib
 from abc import abstractmethod
 from typing import NewType, Protocol, runtime_checkable
 
@@ -8,6 +9,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.utils.data as data
 
+from .utils import io
 from .utils import model as model_utils
 
 MetricResult = NewType("MetricResult", dict[str, float])
@@ -62,3 +64,29 @@ class ClientProtocol(Protocol):
 
     def receive_model(self, new_model: nn.Module):
         model_utils.move_parameters(new_model, self.model, zero_grad=True)
+
+
+class LowMemoryClientMixin:
+    def __init__(self, *, state_path: str | pathlib.Path):
+        self.state_path = state_path.with_suffix("lm")
+        io.dump((None, None), self.state_path, replace=True)
+
+    @property
+    def model(self):
+        model, optimizer = io.load(self.state_path)
+        return model
+
+    @model.setter
+    def model(self, new_model):
+        state = (new_model, self.optimizer)
+        io.dump(state, self.state_path, replace=True)
+
+    @property
+    def optimizer(self):
+        model, optimizer = io.load(self.state_path)
+        return optimizer
+
+    @optimizer.setter
+    def optimizer(self, new_optim):
+        state = (self.model, new_optim)
+        io.dump(state, self.state_path, replace=True)

@@ -43,8 +43,8 @@ class Server:
 
         :param client: Client to be registered.
 
-        :raise ValueError: When client is not an available client.
-        :raise RuntimeError: When there are duplicated client id.
+        :raises ValueError: When client is not an available client.
+        :raises RuntimeError: When there are duplicated client id.
         """
         if not isinstance(client, ClientProtocol):
             raise ValueError(f"The client is not an available client.")
@@ -117,8 +117,8 @@ class Server:
         :param robust_fn: Robust function, specified it explicitly to make the code in FederatedLearning
         straightforward.
 
-        :raise ValueError: When no client in clients.
-        :raise ValueError: When sum of weights is not 1.
+        :raises ValueError: When no client in clients.
+        :raises ValueError: When sum of weights is not 1.
         """
         if len(clients) == 0:
             raise ValueError("Not enough clients to perform aggregation.")
@@ -130,11 +130,11 @@ class Server:
         if not math.isclose(sum(weights), 1., abs_tol=1E-5):
             raise ValueError(f"The sum of weights should close to 1, got {sum(weights)}.")
 
-        weights = [self.learning_rate * weight for weight in weights]
         model_infos = [model_utils.ModelInfo(client.model, weight) for client, weight in zip(clients, weights)]
-
         if robust_fn := robust_fn or self.robust_fn:
             model_infos = robust_fn(model_infos, self.model)
+
+        model_infos = [model_utils.ModelInfo(info.model, self.learning_rate * info.weight) for info in model_infos]
 
         model_utils.aggregate_parameters(model_infos, self.model)
 
