@@ -9,7 +9,7 @@ import torch
 
 def dump(obj: Any, filename: str | pathlib.Path, *, replace: bool = False):
     filename = pathlib.Path(filename)
-    temp_file = filename.with_suffix("tmp")
+    temp_file = filename.with_suffix(".tmp")
     torch.save(obj, temp_file)
 
     if replace:

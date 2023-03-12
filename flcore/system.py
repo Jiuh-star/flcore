@@ -101,8 +101,10 @@ class FederatedLearning(ABC):
                 model = self.algorithm()
 
         except KeyboardInterrupt:
-            self.progress.log("Interruption detected, saving the system.", style="red bold")
-            io.dump(self, self.log_dir / f"fl-{self.logbook[-1].epoch}.state", replace=True)
+            epoch = self.logbook[-1].epoch if self.logbook else -1
+            if epoch >= 0:
+                self.progress.log("Interruption detected, saving the system.", style="red bold")
+                io.dump(self, self.log_dir / f"fl-{self.logbook[-1].epoch}.state", replace=True)
 
         return model
 

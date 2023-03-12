@@ -13,12 +13,15 @@ import torchvision as vision
 
 import flcore
 import flcore.utils.data as data_utils
+import flcore.utils.io as io
 
 
-class FedAvgClient(flcore.ClientProtocol):
+class FedAvgClient(flcore.LowMemoryClientMixin, flcore.ClientProtocol):
     def __init__(self, *, id_: str, model: nn.Module, learning_rate: float, max_epoch: int,
                  train_dataloader: data.DataLoader, eval_dataloader: data.DataLoader, test_dataloader: data.DataLoader,
-                 device: torch.device, optimizer: optim.Optimizer, loss_fn: nn.Module, num_class: int):
+                 device: torch.device, optimizer: optim.Optimizer, loss_fn: nn.Module, num_class: int,
+                 state_path: str | Path):
+        super().__init__(state_path=state_path)
         self.setup(id_=id_, model=model, learning_rate=learning_rate, max_epoch=max_epoch,
                    train_dataloader=train_dataloader, eval_dataloader=eval_dataloader, test_dataloader=test_dataloader,
                    device=device, optimizer=optimizer, loss_fn=loss_fn)
@@ -86,18 +89,17 @@ class FedAvg(flcore.FederatedLearning):
 
             # log
             self.log(flcore.LogItem(epoch=global_epoch, metrics=evaluation))
-            # checkpoint for replay
+
+            # checkpoint
             if global_epoch in self.checkpoints:
-                self.save_replay(flcore.Replay(logbook=self.logbook,
-                                               clients=self.server.registered_clients,
-                                               model=self.server.model))
+                io.dump(self, self.log_dir / f"state-{global_epoch}.pth")
 
         evaluation = self.server.test()
 
         # save the results
-        self.log(flcore.LogItem(epoch=global_epoch, metrics=evaluation, others={
-                "global_model": self.server.model,
-            }), big_item=True, filename="model.pth")
+        self.log(flcore.LogItem(epoch=self.server.max_epoch, metrics=evaluation, others={
+            "global_model": self.server.model,
+        }), big_item=True, filename="model.pth")
 
 
 def main():
@@ -108,21 +110,23 @@ def main():
     ])
 
     dataset = data.ConcatDataset([
-        vision.datasets.CIFAR10("data/", download=True, train=True, transform=transforms),
-        vision.datasets.CIFAR10("data/", download=True, train=False, transform=transforms),
+        vision.datasets.CIFAR10("tests/data/", download=True, train=True, transform=transforms),
+        vision.datasets.CIFAR10("tests/data/", download=True, train=False, transform=transforms),
     ])
-    subsets = data_utils.generate_dirichlet_subsets(dataset=dataset, alphas=[1] * 100, min_data=40)
+    subsets = data_utils.generate_dirichlet_subsets(dataset=dataset, alphas=[1] * 10, min_data=40)
     train_test_subsets = [data.random_split(subset, [0.6, 0.2, 0.2]) for subset in subsets]
 
     server = FedAvgServer(select_ratio=0.1, max_epoch=800, learning_rate=0.5, robust_fn=None)
 
     system = FedAvg(server=server, log_dir="output")
 
-    for i in range(100):
+    for i in range(10):
         device = torch.device("cuda")
         client_model = copy.deepcopy(model).to(device)
         optimizer = optim.SGD(client_model.parameters(), lr=0.05)
         loss_fn = nn.CrossEntropyLoss()
+        state_path = system.log_dir / "low_memory"
+        state_path.mkdir(exist_ok=True)
 
         client = FedAvgClient(
             id_=str(i),
@@ -136,10 +140,11 @@ def main():
             optimizer=optimizer,
             loss_fn=loss_fn,
             num_class=10,
+            state_path=state_path / f"{i}.state"
         )
         server.register_client(client)
 
-    system.algorithm()
+    system.run()
 
 
 if __name__ == '__main__':

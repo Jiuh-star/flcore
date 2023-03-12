@@ -68,7 +68,7 @@ class ClientProtocol(Protocol):
 
 class LowMemoryClientMixin:
     def __init__(self, *, state_path: str | pathlib.Path):
-        self.state_path = state_path.with_suffix("lm")
+        self.state_path = state_path.with_suffix(".lm")
         io.dump((None, None), self.state_path, replace=True)
 
     @property
