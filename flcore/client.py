@@ -66,6 +66,7 @@ class ClientProtocol(Protocol):
         model_utils.move_parameters(new_model, self.model, zero_grad=True)
 
 
+# FIXME
 class LowMemoryClientMixin:
     def __init__(self, *, state_path: str | pathlib.Path):
         self.state_path = state_path.with_suffix(".lm")

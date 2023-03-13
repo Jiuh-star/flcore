@@ -116,7 +116,7 @@ class FederatedLearning(ABC):
         if big_item:
             self.logbook.pop()
             filename = filename or f"log-{log_item.epoch}-{time.strftime('%X')}.pth"
-            io.dump(log_item, self.log_dir / filename)
+            io.dump(log_item, self.log_dir / filename, replace=True)
 
         # Plot metric in tensorboard
         if self.tensorboard:
@@ -129,4 +129,4 @@ class FederatedLearning(ABC):
         # Save the new log_item into logbook.pth.
         # Note that torch.save doesn't support incremental save, we save the whole logbook instead,
         # so do not save any big log_item into logbook.
-        io.dump(self.logbook, self.log_dir / "logbook.pth")
+        io.dump(self.logbook, self.log_dir / "logbook.pth", replace=True)
