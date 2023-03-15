@@ -121,7 +121,7 @@ class Bulyan(RobustFn):
             warnings.warn(f"The number of aggregated clients is smaller than 4 * f + 3 ({4 * self.num_remove + 3}), "
                           f"which not satisfy Bulyan need.")
 
-        krum = Krum(num_remove=self.num_remove, num_select=len(model_infos) - 2 * self.num_remove)
+        krum = Krum(num_remove=self.num_remove, num_select=2 * self.num_remove + 3)
         trimmed_mean = TrimmedMean(num_remove=2 * self.num_remove)
 
         model_infos = krum(model_infos, global_model)
