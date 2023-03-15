@@ -12,11 +12,11 @@ A simple, straightforward federated learning micro framework for scholar.
   - [robust.py](flcore/utils/robust.py): Out-of-box robust aggregation function.
 - [x] Beautiful progress bar and terminal logging with [rich](https://github.com/Textualize/rich).
 - [x] Integrate `tensorboard` to monitor your experiment.
-- [x] `LowMemoryClientMixin` to save your cuda memory.
+- [ ] `LowMemoryClientMixin` to save your cuda memory. (Not available now)
 - [x] Auto save state if keyboard interruption detected.
 - [x] Auto save log & metrics of all clients while system running.
 
-### Something under work
+### Under work
 
 - [ ] Fully test.
 - [ ] Well document
