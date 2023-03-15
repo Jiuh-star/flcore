@@ -34,6 +34,12 @@ class LogItem:
         yield "other", self.others, {}
 
 
+@dataclasses.dataclass
+class ServerCheckpoint:
+    epoch: int
+    server: Server
+
+
 class _SpeedColumn(rich.progress.ProgressColumn):
     def render(self, task: rich.progress.Task) -> rich.text.Text:
         """Show step-style speed."""
@@ -103,8 +109,9 @@ class FederatedLearning(ABC):
         except KeyboardInterrupt:
             epoch = self.logbook[-1].epoch if self.logbook else -1
             if epoch >= 0:
-                self.progress.log("Interruption detected, saving the system.", style="red bold")
-                io.dump(self, self.log_dir / f"fl-{self.logbook[-1].epoch}.state", replace=True)
+                self.progress.log("Interruption detected, saving the server and clients.", style="red bold")
+                epoch = self.logbook[-1].epoch
+                io.dump(ServerCheckpoint(epoch, self.server), self.log_dir / f"server-{epoch}.ckpt", replace=True)
 
         return model
 
