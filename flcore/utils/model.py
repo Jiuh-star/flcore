@@ -1,50 +1,18 @@
 from __future__ import annotations
 
 import copy
-import functools
-from typing import Sequence, NamedTuple, Callable, TypeAlias
+from typing import Sequence, Callable, Optional, Iterable
 
 import torch
 import torch.nn as nn
 
-MapFunction: TypeAlias = Callable[..., torch.Tensor]
-
-
-class ModelInfo(NamedTuple):
-    model: nn.Module
-    weight: float
-    id: str = None
-
-
-@torch.no_grad()
-def compare_model_structures(*models: nn.Module, raise_error: bool = False) -> bool:
-    try:
-        for params in zip(*[model.parameters() for model in models], strict=True):
-            sizes = {param.size() for param in params}
-            types = {param.dtype for param in params}
-
-            if len(sizes) != 1:
-                raise ValueError(f"Model parameters are not the same size at {params[0]}.")
-            if len(types) != 1:
-                raise ValueError(f"Model parameters are not the same type at {params[0]}.")
-
-    except ValueError as e:
-        if raise_error:
-            raise e
-        return False
-
-    else:
-        return True
-
 
 @torch.no_grad()
 def move_parameters(from_: nn.Module, to: nn.Module, *, buffer: bool = False, zero_grad: bool = False):
-    compare_model_structures(from_, to, raise_error=True)
-
     if buffer:
         to.load_state_dict(from_.state_dict())
     else:
-        for from_param, to_param in zip(from_.parameters(), to.parameters()):
+        for from_param, to_param in zip(from_.parameters(), to.parameters(), strict=True):
             to_param.data.copy_(from_param.data)
 
     if zero_grad:
@@ -52,59 +20,97 @@ def move_parameters(from_: nn.Module, to: nn.Module, *, buffer: bool = False, ze
 
 
 @torch.no_grad()
-def aggregate_parameters(local_model_infos: Sequence[ModelInfo], global_model: nn.Module) -> nn.Module:
-    if len(local_model_infos) == 0:
-        raise ValueError("No available model to performs aggregation.")
+def model_to_vector(model: nn.Module) -> torch.Tensor:
+    # Flag for the device where the parameter is located
+    param_device = None
 
-    compare_model_structures(global_model, *[info.model for info in local_model_infos], raise_error=True)
+    vector = []
+    for param in model.parameters():
+        # Ensure the parameters are located in the same device
+        param_device = _check_param_device(param, param_device)
 
-    for info in local_model_infos:
-        local_model = info.model
-        weight = info.weight
+        vector.append(param.view(-1))
 
-        for local_param, global_param in zip(local_model.parameters(), global_model.parameters()):
-            global_param.data.add_(local_param.data - global_param.data, alpha=weight)
+    return torch.cat(vector)
+
+
+def vector_to_model(vector: torch.Tensor, model: nn.Module) -> None:
+    # Ensure vec of type Tensor
+    if not isinstance(vector, torch.Tensor):
+        raise TypeError(f"Expected torch.Tensor, but got: {torch.typename(vector)}")
+
+    # Flag for the device where the parameter is located
+    param_device = None
+    # Pointer for slicing the vector for each parameter
+    pointer = 0
+    for param in model.parameters():
+        # Ensure the parameters are located in the same device
+        param_device = _check_param_device(param, param_device)
+
+        # The length of the parameter
+        num_param = param.numel()
+
+        # Slice the vector, reshape it, and copy the old data of the parameter
+        param.data.copy_(vector[pointer: pointer + num_param].view_as(param).data)
+
+        # Increment the pointer
+        pointer += num_param
+
+
+@torch.no_grad()
+def aggregate(
+        global_vector: torch.Tensor, local_vectors: Iterable[torch.Tensor], weights: Iterable[float], *,
+        out: torch.Tensor = None
+) -> torch.Tensor:
+    if out is None:
+        out = global_vector.clone()
+    else:
+        out.copy_(global_vector)
+
+    for weight, local_vector in zip(weights, local_vectors, strict=True):
+        delta = local_vector - global_vector
+        out.add_(delta, alpha=weight)
+
+    return out
+
+
+@torch.no_grad()
+def aggregate_model(global_model: nn.Module, local_models: Iterable[nn.Module], weights: Iterable[float]) -> nn.Module:
+    global_vector = model_to_vector(global_model)
+    local_vectors = (model_to_vector(local_model) for local_model in local_models)
+
+    global_vector = aggregate(global_vector, local_vectors, weights, out=global_vector)
+    vector_to_model(global_vector, global_model)
 
     return global_model
 
 
 @torch.no_grad()
-def flatten_model(model: nn.Module) -> torch.Tensor:
-    vector = torch.cat([param.flatten() for param in model.parameters()])
-    return vector
-
-
-@torch.no_grad()
-def model_map(function: MapFunction, models: Sequence[nn.Module] = None, *, out: nn.Module = None) -> nn.Module:
-    if out is None:
-        out = copy.deepcopy(models[0])
-
-    compare_model_structures(out, *models, raise_error=True)
+def layer_map(
+        function: Callable[[tuple[torch.Tensor, ...]], torch.Tensor], models: Sequence[nn.Module], *,
+        out: nn.Module = None
+) -> nn.Module:
+    out = out or copy.deepcopy(models[0])
 
     for out_param, *params in zip(out.parameters(), *[model.parameters() for model in models]):
-        out_param.data.copy_(function(*[param.data for param in params]))
+        params = tuple([param.data for param in params])
+        result = function(params)
+        out_param.data.copy_(result)
 
     return out
 
 
-@torch.no_grad()
-def add(left: nn.Module, right: nn.Module, *, out: nn.Module = None) -> nn.Module:
-    return model_map(torch.add, [left, right], out=out)
-
-
-@torch.no_grad()
-def sub(left: nn.Module, right: nn.Module, *, out: nn.Module = None) -> nn.Module:
-    return model_map(torch.sub, [left, right], out=out)
-
-
-@torch.no_grad()
-def multiply(x: nn.Module, alpha: float, *, out: nn.Module = None) -> nn.Module:
-    mul = functools.partial(torch.mul, alpha)
-    return model_map(mul, [x], out=out)
-
-
-@torch.no_grad()
-def scale_delta(x: nn.Module, y: nn.Module, alpha: float, *, out: nn.Module = None) -> nn.Module:
-    out = sub(x, y, out=out)
-    out = multiply(out, alpha, out=out)
-    return out
+# From PyTorch
+def _check_param_device(param: torch.Tensor, old_param_device: Optional[int]) -> int:
+    # Meet the first parameter
+    if old_param_device is None:
+        old_param_device = param.get_device() if param.is_cuda else -1
+    else:
+        if param.is_cuda:  # Check if in same GPU
+            warn = (param.get_device() != old_param_device)
+        else:  # Check if in CPU
+            warn = (old_param_device != -1)
+        if warn:
+            raise TypeError('Found two parameters on different devices, '
+                            'this is currently not supported.')
+    return old_param_device

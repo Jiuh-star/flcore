@@ -42,7 +42,7 @@ class ServerCheckpoint:
 
 class _SpeedColumn(rich.progress.ProgressColumn):
     def render(self, task: rich.progress.Task) -> rich.text.Text:
-        """Show step-style speed."""
+        """ Show step-style speed. """
         speed = task.finished_speed or task.speed
         if speed is None:
             return rich.text.Text("?", style="progress.data.speed")
@@ -66,6 +66,7 @@ class _Progress(rich.progress.Progress):
     def __call__(self, sequence: Sequence[T], header: str, **kwargs) -> Iterator[T]:
         """
         Track the `sequence` and print progress bar in terminal with title `header`.
+
         :param sequence: Sequence to be iterated.
         :param header: Title of progress bar.
         :param kwargs: Other keyword arguments in rich.progress.Progress.track()
@@ -86,6 +87,13 @@ class _Progress(rich.progress.Progress):
 
 class FederatedLearning(ABC):
     def __init__(self, *, server: Server, log_dir: str | pathlib.Path, tensorboard: bool = True):
+        """
+        The base class of a simulated federated learning system.
+
+        :param server: A federated learning server.
+        :param log_dir: The log directory of logging file.
+        :param tensorboard: Logging evaluation metrics to tensorboard.
+        """
         self.server = server
         self.log_dir = pathlib.Path(log_dir)
         self.tensorboard = tb.SummaryWriter(log_dir) if tensorboard else None
@@ -96,9 +104,18 @@ class FederatedLearning(ABC):
 
     @abstractmethod
     def algorithm(self) -> nn.Module:
-        ...
+        """
+        The abstract method of federated learning algorithm.
+
+        :return: The trained model.
+        """
 
     def run(self):
+        """
+        Run the simulated federated learning algorithm.
+
+        :return: The trained model.
+        """
         if len(self.server.registered_clients) == 0:
             raise ValueError("There are no registered clients in server.")
 
@@ -116,6 +133,13 @@ class FederatedLearning(ABC):
         return model
 
     def log(self, log_item: LogItem, *, big_item: bool = False, filename: str = None):
+        """
+        Log the *log_item* to terminal and file (`self.log_dir`).
+
+        :param log_item: An LogItem instance.
+        :param big_item: Save the log item into an independent file.
+        :param filename: The filename of big_item
+        """
         self.progress.log(log_item)
         self.logbook.append(log_item)
 
@@ -137,3 +161,12 @@ class FederatedLearning(ABC):
         # Note that torch.save doesn't support incremental save, we save the whole logbook instead,
         # so do not save any big log_item into logbook.
         io.dump(self.logbook, self.log_dir / "logbook.pth", replace=True)
+
+    def load(self, checkpoint: ServerCheckpoint):
+        """
+        Load the checkpoint to restore federated learning state. Note that this only restore clients and server, local
+        variables in `algorithm()` would not restore.
+
+        :param checkpoint: An ServerCheckpoint instance.
+        """
+        self.server = checkpoint.server

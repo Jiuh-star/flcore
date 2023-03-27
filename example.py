@@ -16,7 +16,7 @@ import flcore.utils.data as data_utils
 import flcore.utils.io as io
 
 
-class FedAvgClient(flcore.LowMemoryClientMixin, flcore.ClientProtocol):
+class FedAvgClient(flcore.ClientProtocol):
     def __init__(self, *, id_: str, model: nn.Module, learning_rate: float, max_epoch: int,
                  train_dataloader: data.DataLoader, eval_dataloader: data.DataLoader, test_dataloader: data.DataLoader,
                  device: torch.device, optimizer: optim.Optimizer, loss_fn: nn.Module, num_class: int,
@@ -102,6 +102,44 @@ class FedAvg(flcore.FederatedLearning):
         }), big_item=True, filename="model.pth")
 
 
+class CnnModel(nn.Module):
+    def __init__(self, in_channels=1, num_class=10, dim=1024):
+        super().__init__()
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(in_channels,
+                      32,
+                      kernel_size=5,
+                      padding=0,
+                      stride=1,
+                      bias=True),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=(2, 2))
+        )
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(32,
+                      64,
+                      kernel_size=5,
+                      padding=0,
+                      stride=1,
+                      bias=True),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=(2, 2))
+        )
+        self.fc1 = nn.Sequential(
+            nn.Linear(dim, 512),
+            nn.ReLU(inplace=True)
+        )
+        self.fc = nn.Linear(512, num_class)
+
+    def forward(self, x):
+        out = self.conv1(x)
+        out = self.conv2(out)
+        out = torch.flatten(out, 1)
+        out = self.fc1(out)
+        out = self.fc(out)
+        return out
+
+
 def main():
     model = vision.models.resnet18(num_classes=10).to("cuda")
     transforms = vision.transforms.Compose([
@@ -113,14 +151,14 @@ def main():
         vision.datasets.CIFAR10("tests/data/", download=True, train=True, transform=transforms),
         vision.datasets.CIFAR10("tests/data/", download=True, train=False, transform=transforms),
     ])
-    subsets = data_utils.generate_dirichlet_subsets(dataset=dataset, alphas=[1] * 10, min_data=40)
+    subsets = data_utils.generate_dirichlet_subsets(dataset=dataset, alphas=[1] * 100, min_data=40)
     train_test_subsets = [data.random_split(subset, [0.6, 0.2, 0.2]) for subset in subsets]
 
-    server = FedAvgServer(select_ratio=0.1, max_epoch=800, learning_rate=0.5, robust_fn=None)
+    server = FedAvgServer(select_ratio=0.1, max_epoch=800, learning_rate=0.05, robust_fn=None)
 
     system = FedAvg(server=server, log_dir="output")
 
-    for i in range(10):
+    for i in range(100):
         device = torch.device("cuda")
         client_model = copy.deepcopy(model).to(device)
         optimizer = optim.SGD(client_model.parameters(), lr=0.05)

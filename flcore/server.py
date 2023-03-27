@@ -97,6 +97,7 @@ class Server:
             assert len(self.registered_clients) > 0
 
             self._model = copy.deepcopy(self.registered_clients[0].model)
+            self._model.requires_grad_(False)
             # average model initiate parameters first
             self.aggregate(self.registered_clients)
 
@@ -104,7 +105,7 @@ class Server:
 
     @model.setter
     def model(self, new_model: torch.nn.Module):
-        self._model = new_model
+        self._model = new_model.cpu()
 
     def aggregate(self, clients: Sequence[ClientProtocol], weights: Sequence[float] = None,
                   robust_fn: robust.RobustFn = None):
@@ -127,16 +128,19 @@ class Server:
             dataset_size = sum([len(client.train_dataset) for client in clients])
             weights = [len(client.train_dataset) / dataset_size for client in clients]
 
+        if len(weights) != len(clients):
+            raise ValueError(f"The length of weights ({len(weights)}) and clients ({len(clients)}) are not the same.")
+
         if not math.isclose(sum(weights), 1., abs_tol=1E-5):
             raise ValueError(f"The sum of weights should close to 1, got {sum(weights)}.")
 
-        model_infos = [model_utils.ModelInfo(client.model, weight) for client, weight in zip(clients, weights)]
+        local_models = [client.model for client in clients]
+
         if robust_fn := robust_fn or self.robust_fn:
-            model_infos = robust_fn(model_infos, self.model)
+            local_models = robust_fn(self.model, local_models)
+            weights = [1 / len(local_models)] * len(local_models)
 
-        model_infos = [model_utils.ModelInfo(info.model, self.learning_rate * info.weight) for info in model_infos]
-
-        model_utils.aggregate_parameters(model_infos, self.model)
+        self.model = model_utils.aggregate_model(self.model, local_models, weights)
 
     def evaluate(self) -> EvaluationResult:
         """
@@ -155,6 +159,7 @@ class Server:
         return self._eval(lambda client: client.test_dataloader)
 
     def _eval(self, load_dataloader: Callable[[ClientProtocol], data.DataLoader]) -> EvaluationResult:
+        """ evaluate all models in client with dataloader from load_dataloader. """
         self.registered_clients: list[ClientProtocol]
         client_metric_result: dict[str, MetricResult]
 

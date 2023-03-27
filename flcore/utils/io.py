@@ -19,7 +19,7 @@ def dump(obj: Any, filename: str | pathlib.Path, *, replace: bool = False):
 
 
 def load(filename: str | pathlib.Path, *, raise_error: bool = True) -> Any:
-    cm = contextlib.suppress(RuntimeError) if raise_error else contextlib.nullcontext()
+    cm = contextlib.nullcontext() if raise_error else contextlib.suppress(RuntimeError)
 
     with cm:
         return torch.load(filename)
