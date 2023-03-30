@@ -150,14 +150,14 @@ def main():
         vision.datasets.CIFAR10("tests/data/", download=True, train=True, transform=transforms),
         vision.datasets.CIFAR10("tests/data/", download=True, train=False, transform=transforms),
     ])
-    subsets = data_utils.generate_dirichlet_subsets(dataset=dataset, alphas=[1] * 20, min_data=40)
+    subsets = data_utils.generate_dirichlet_subsets(dataset=dataset, alphas=[1] * 100, min_data=40)
     train_test_subsets = [data.random_split(subset, [0.6, 0.2, 0.2]) for subset in subsets]
 
     server = FedAvgServer(select_ratio=0.1, max_epoch=800, learning_rate=1, robust_fn=None)
 
     system = FedAvg(server=server, log_dir="output")
 
-    for i in range(20):
+    for i in range(100):
         device = torch.device("cuda")
         client_model = copy.deepcopy(model).to(device)
         optimizer = optim.SGD(client_model.parameters(), lr=0.05)

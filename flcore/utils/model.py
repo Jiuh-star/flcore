@@ -58,24 +58,26 @@ def vector_to_model(vector: torch.Tensor, model: nn.Module) -> None:
 
 
 @torch.no_grad()
-def aggregate_gradient(global_vector: torch.Tensor, local_grads: Iterable[torch.Tensor], weights: Iterable[float], *,
+def aggregate_gradient(gradients: Iterable[torch.Tensor], weights: Iterable[float], *,
                        out: torch.Tensor = None) -> torch.Tensor:
     if out is None:
-        out = global_vector.clone()
+        out = 0
     else:
-        out.copy_(global_vector)
+        out.zero_()
 
-    for weight, local_grad in zip(weights, local_grads, strict=True):
-        out.add_(local_grad, alpha=weight)
+    for weight, grad in zip(weights, gradients, strict=True):
+        out += weight * grad
 
     return out
 
 
 @torch.no_grad()
-def aggregate(global_vector: torch.Tensor, local_vectors: Iterable[torch.Tensor], weights: Iterable[float], *,
-              out: torch.Tensor = None) -> torch.Tensor:
+def aggregate_vector(global_vector: torch.Tensor, local_vectors: Iterable[torch.Tensor], weights: Iterable[float], *,
+                     out: torch.Tensor = None) -> torch.Tensor:
     local_grads = (vector - global_vector for vector in local_vectors)
-    return aggregate_gradient(global_vector, local_grads, weights, out=out)
+    gradient = aggregate_gradient(local_grads, weights)
+
+    return torch.add(global_vector, gradient, out=out)
 
 
 @torch.no_grad()
@@ -83,7 +85,7 @@ def aggregate_model(global_model: nn.Module, local_models: Iterable[nn.Module], 
     global_vector = model_to_vector(global_model)
     local_vectors = (model_to_vector(local_model) for local_model in local_models)
 
-    global_vector = aggregate(global_vector, local_vectors, weights, out=global_vector)
+    global_vector = aggregate_vector(global_vector, local_vectors, weights, out=global_vector)
     vector_to_model(global_vector, global_model)
 
     return global_model
