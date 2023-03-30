@@ -16,7 +16,7 @@ RobustFnReturn: TypeAlias = tuple[list[nn.Module], list[float] | None]
 class RobustFn(ABC):
     @abstractmethod
     def __call__(
-            self, global_model: nn.Module, local_models: Sequence[nn.Module], weights: Sequence[float]
+            self, global_model: nn.Module, local_models: Sequence[nn.Module], weights: Sequence[float] = None
     ) -> RobustFnReturn:
         ...
 
@@ -29,7 +29,7 @@ class Krum(RobustFn):
         self.num_select = num_select
 
     def __call__(
-            self, global_model: nn.Module, local_models: Sequence[nn.Module], weights: Sequence[float]
+            self, global_model: nn.Module, local_models: Sequence[nn.Module], weights: Sequence[float] = None
     ) -> RobustFnReturn:
         if not len(local_models) - (2 * self.num_remove + 2) >= self.num_select:
             warnings.warn(f"The number of aggregated clients is smaller than 2 * f + 2 ({2 * self.num_remove + 2}), "
@@ -40,7 +40,7 @@ class Krum(RobustFn):
                              f"when there are {len(local_models)} models only.")
 
         local_models = list(local_models)
-        weights = list(weights)
+        weights = list(weights) if weights else [1 / len(local_models)] * len(local_models)
         local_vectors = [model_utils.model_to_vector(model) for model in local_models]
 
         # multi-krum
@@ -76,7 +76,7 @@ class TrimmedMean(RobustFn):
         self.num_remove = num_remove
 
     def __call__(
-            self, global_model: nn.Module, local_models: Sequence[nn.Module], weights: Sequence[float]
+            self, global_model: nn.Module, local_models: Sequence[nn.Module], weights: Sequence[float] = None
     ) -> RobustFnReturn:
         if len(local_models) <= self.num_remove:
             raise ValueError(f"Can't remove {self.num_remove} models when there are {len(local_models)} models only.")
@@ -95,7 +95,7 @@ class TrimmedMean(RobustFn):
 
 class Median(RobustFn):
     def __call__(
-            self, global_model: nn.Module, local_models: Sequence[nn.Module], weights: Sequence[float]
+            self, global_model: nn.Module, local_models: Sequence[nn.Module], weights: Sequence[float] = None
     ) -> RobustFnReturn:
         local_vectors = [model_utils.model_to_vector(model) for model in local_models]
         median = torch.stack(local_vectors).median(dim=0)[0]
@@ -115,7 +115,7 @@ class Bulyan(RobustFn):
         self.trimmed_mean = None
 
     def __call__(
-            self, global_model: nn.Module, local_models: Sequence[nn.Module], weights: Sequence[float]
+            self, global_model: nn.Module, local_models: Sequence[nn.Module], weights: Sequence[float] = None
     ) -> RobustFnReturn:
         if not len(local_models) >= 4 * self.num_remove + 3:
             warnings.warn(f"The number of aggregated clients is smaller than 4 * f + 3 ({4 * self.num_remove + 3}), "
@@ -138,7 +138,7 @@ class NormBound(RobustFn):
         self.threshold = threshold
 
     def __call__(
-            self, global_model: nn.Module, local_models: Sequence[nn.Module], weights: Sequence[float]
+            self, global_model: nn.Module, local_models: Sequence[nn.Module], weights: Sequence[float] = None
     ) -> RobustFnReturn:
         global_vector = model_utils.model_to_vector(global_model)
 
@@ -152,4 +152,4 @@ class NormBound(RobustFn):
             model_utils.vector_to_model(global_vector + grad, model)
             models.append(model)
 
-        return models, list(weights)
+        return models, list(weights) if weights else None
