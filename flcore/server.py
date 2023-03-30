@@ -137,8 +137,8 @@ class Server:
         local_models = [client.model for client in clients]
 
         if robust_fn := robust_fn or self.robust_fn:
-            local_models = robust_fn(self.model, local_models)
-            weights = [1 / len(local_models)] * len(local_models)
+            local_models, weights = robust_fn(self.model, local_models, weights)
+            weights = [1 / len(local_models)] * len(local_models) if weights is None else weights
 
         self.model = model_utils.aggregate_model(self.model, local_models, weights)
 
