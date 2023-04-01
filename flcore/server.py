@@ -131,7 +131,7 @@ class Server:
         if len(weights) != len(clients):
             raise ValueError(f"The length of weights ({len(weights)}) and clients ({len(clients)}) are not the same.")
 
-        if not math.isclose(sum(weights), 1., abs_tol=1E-5):
+        if not math.isclose(math.fsum(weights), 1., abs_tol=1E-5):
             raise ValueError(f"The sum of weights should close to 1, got {sum(weights)}.")
 
         local_models = [client.model for client in clients]
