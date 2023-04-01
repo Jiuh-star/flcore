@@ -98,8 +98,8 @@ class Server:
 
             self._model = copy.deepcopy(self.registered_clients[0].model)
             self._model.requires_grad_(False)
-            # average model initiate parameters first
-            self.aggregate(self.registered_clients)
+            # average model initiate parameters first will make the model non-trainable.
+            # self.aggregate(self.registered_clients)
 
         return self._model
 
