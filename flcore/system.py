@@ -129,6 +129,7 @@ class FederatedLearning(ABC):
                 self.progress.log("Interruption detected, saving the server and clients.", style="red bold")
                 epoch = self.logbook[-1].epoch
                 io.dump(ServerCheckpoint(epoch, self.server), self.log_dir / f"server-{epoch}.ckpt", replace=True)
+            exit(0)
 
         return model
 
