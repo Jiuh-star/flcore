@@ -21,6 +21,9 @@ T = TypeVar("T")
 
 @dataclasses.dataclass
 class LogItem:
+    """
+    The log item of a federated learning system.
+    """
     epoch: int
     message: str = ""
     metrics: EvaluationResult = dataclasses.field(default_factory=dict)
@@ -36,6 +39,9 @@ class LogItem:
 
 @dataclasses.dataclass
 class ServerCheckpoint:
+    """
+    The checkpoint of the server in federated learning.
+    """
     epoch: int
     server: Server
 

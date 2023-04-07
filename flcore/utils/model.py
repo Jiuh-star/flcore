@@ -9,6 +9,14 @@ import torch.nn as nn
 
 @torch.no_grad()
 def move_parameters(from_: nn.Module, to: nn.Module, *, buffer: bool = False, zero_grad: bool = False):
+    """
+    Move parameters from one model to another.
+
+    :param from_: The model to move parameters from.
+    :param to: The model to move parameters to.
+    :param buffer: Whether to move buffers.
+    :param zero_grad: Set the gradient of the parameters to None.
+    """
     if buffer:
         to.load_state_dict(from_.state_dict())
     else:
@@ -21,6 +29,12 @@ def move_parameters(from_: nn.Module, to: nn.Module, *, buffer: bool = False, ze
 
 @torch.no_grad()
 def model_to_vector(model: nn.Module) -> torch.Tensor:
+    """
+    Convert model parameters to a detached vector.
+
+    :param model: The model.
+    :return: The vector.
+    """
     # Flag for the device where the parameter is located
     param_device = None
 
@@ -35,6 +49,14 @@ def model_to_vector(model: nn.Module) -> torch.Tensor:
 
 
 def vector_to_model(vector: torch.Tensor, model: nn.Module) -> None:
+    """
+    Convert a vector to model parameters, and copy the data to the model.
+
+    :param vector: The vector.
+    :param model: The model.
+
+    :raise TypeError: If the vector is not a Tensor.
+    """
     # Ensure vec of type Tensor
     if not isinstance(vector, torch.Tensor):
         raise TypeError(f"Expected torch.Tensor, but got: {torch.typename(vector)}")
@@ -60,6 +82,16 @@ def vector_to_model(vector: torch.Tensor, model: nn.Module) -> None:
 @torch.no_grad()
 def aggregate_gradient(gradients: Iterable[torch.Tensor], weights: Iterable[float], *,
                        out: torch.Tensor = None) -> torch.Tensor:
+    """
+    Aggregate gradients.
+
+    :param gradients: The gradient vectors.
+    :param weights: The weights of the gradients.
+    :param out: Aggregate the gradients to this tensor.
+    :return: The aggregated gradient.
+
+    :raise ValueError: If the number of gradients and weights are not equal.
+    """
     if out is None:
         out = 0
     else:
@@ -74,6 +106,15 @@ def aggregate_gradient(gradients: Iterable[torch.Tensor], weights: Iterable[floa
 @torch.no_grad()
 def aggregate_vector(global_vector: torch.Tensor, local_vectors: Iterable[torch.Tensor], weights: Iterable[float], *,
                      out: torch.Tensor = None) -> torch.Tensor:
+    """
+    Aggregate vectors.
+
+    :param global_vector: The vector of the global model.
+    :param local_vectors: The vectors of the local models.
+    :param weights: The weights of the local vectors.
+    :param out: Aggregate the vectors to this tensor.
+    :return: The aggregated vector.
+    """
     local_grads = (vector - global_vector for vector in local_vectors)
     gradient = aggregate_gradient(local_grads, weights)
 
@@ -82,6 +123,14 @@ def aggregate_vector(global_vector: torch.Tensor, local_vectors: Iterable[torch.
 
 @torch.no_grad()
 def aggregate_model(global_model: nn.Module, local_models: Iterable[nn.Module], weights: Iterable[float]) -> nn.Module:
+    """
+    Aggregate models.
+
+    :param global_model: The global model.
+    :param local_models: The local models
+    :param weights: The weights of the local models.
+    :return: The aggregated model, which is the global model.
+    """
     global_vector = model_to_vector(global_model)
     local_vectors = (model_to_vector(local_model) for local_model in local_models)
 
@@ -96,6 +145,14 @@ def layer_map(
         function: Callable[[tuple[torch.Tensor, ...]], torch.Tensor], models: Sequence[nn.Module], *,
         out: nn.Module = None
 ) -> nn.Module:
+    """
+    Map a function to the parameters of the layers of the models.
+
+    :param function: The function to map, which takes a tuple of tensors as input and returns a tensor.
+    :param models: The models.
+    :param out: The model to store the result.
+    :return: The mapped model.
+    """
     out = out or copy.deepcopy(models[0])
 
     for out_param, *params in zip(out.parameters(), *[model.parameters() for model in models]):
@@ -108,6 +165,9 @@ def layer_map(
 
 # From PyTorch
 def _check_param_device(param: torch.Tensor, old_param_device: Optional[int]) -> int:
+    """
+    Check if the parameter is located in the same device as the previous parameters.
+    """
     # Meet the first parameter
     if old_param_device is None:
         old_param_device = param.get_device() if param.is_cuda else -1

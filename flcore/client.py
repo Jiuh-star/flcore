@@ -15,6 +15,9 @@ MetricResult = NewType("MetricResult", dict[str, float])
 
 @runtime_checkable
 class ClientProtocol(Protocol):
+    """
+    The protocol of client. A client is a device that has a local model and can train, evaluate and test the model.
+    """
     id: str
     model: nn.Module
     learning_rate: float

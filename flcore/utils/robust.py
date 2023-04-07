@@ -14,6 +14,10 @@ RobustFnReturn: TypeAlias = tuple[list[nn.Module], list[float] | None]
 
 
 class RobustFn(ABC):
+    """
+    The abstract class of the robust aggregation function.
+    """
+
     @abstractmethod
     def __call__(
             self, global_model: nn.Module, local_models: Sequence[nn.Module], weights: Sequence[float] = None
@@ -23,6 +27,12 @@ class RobustFn(ABC):
 
 class Krum(RobustFn):
     def __init__(self, *, num_remove: int, num_select: int):
+        """
+        The Krum robust aggregation function.
+
+        :param num_remove: How many models to remove.
+        :param num_select: How many models to select. It's MultiKrum if num_select > 1.
+        """
         assert num_remove > 0
         assert num_select > 0
         self.num_remove = num_remove
@@ -72,6 +82,11 @@ class Krum(RobustFn):
 
 class TrimmedMean(RobustFn):
     def __init__(self, *, num_remove: int):
+        """
+        The TrimmedMean robust aggregation function.
+
+        :param num_remove: How many models to remove, this will remove num_remove // 2 models from left and right.
+        """
         assert num_remove > 0
         self.num_remove = num_remove
 
@@ -94,6 +109,12 @@ class TrimmedMean(RobustFn):
 
 
 class Median(RobustFn):
+    def __init__(self):
+        """
+        The Median robust aggregation function.
+        """
+        super().__init__()
+
     def __call__(
             self, global_model: nn.Module, local_models: Sequence[nn.Module], weights: Sequence[float] = None
     ) -> RobustFnReturn:
@@ -108,6 +129,11 @@ class Median(RobustFn):
 
 class Bulyan(RobustFn):
     def __init__(self, *, num_remove: int):
+        """
+        The Bulyan robust aggregation function.
+
+        :param num_remove: How many models to remove.
+        """
         assert num_remove > 0
         self.num_remove = num_remove
 
@@ -135,6 +161,11 @@ class Bulyan(RobustFn):
 
 class NormBound(RobustFn):
     def __init__(self, *, threshold: float):
+        """
+        The NormBound robust aggregation function.
+
+        :param threshold: The threshold of the norm of the gradient.
+        """
         self.threshold = threshold
 
     def __call__(
