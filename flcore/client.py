@@ -98,4 +98,4 @@ class ClientProtocol(Protocol):
 
         :param new_model: The new model.
         """
-        model_utils.move_parameters(new_model.to(self.device), self.model, zero_grad=True)
+        model_utils.move_parameters(new_model, self.model, zero_grad=True)

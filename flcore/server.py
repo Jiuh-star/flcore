@@ -98,14 +98,14 @@ class Server:
 
             self._model = copy.deepcopy(self.registered_clients[0].model)
             self._model.requires_grad_(False)
-            # average model initiate parameters first will make the model non-trainable.
+            # Average model initiate parameters first will make the model un-trainable.
             # self.aggregate(self.registered_clients)
 
         return self._model
 
     @model.setter
     def model(self, new_model: torch.nn.Module):
-        self._model = new_model.cpu()
+        self._model = new_model
 
     def aggregate(self, clients: Sequence[ClientProtocol], weights: Sequence[float] = None,
                   robust_fn: robust.RobustFn = None):

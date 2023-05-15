@@ -41,9 +41,9 @@ class Krum(RobustFn):
     def __call__(
             self, global_model: nn.Module, local_models: Sequence[nn.Module], weights: Sequence[float] = None
     ) -> RobustFnReturn:
-        if not len(local_models) - (2 * self.num_remove + 2) >= self.num_select:
-            warnings.warn(f"The number of aggregated clients is smaller than 2 * f + 2 ({2 * self.num_remove + 2}), "
-                          f"which not satisfy Krum/MultiKrum need.")
+        if not (num_aggregated := len(local_models) - (2 * self.num_remove + 2)) >= self.num_select:
+            warnings.warn(f"The number of aggregatable clients ({num_aggregated}) is smaller than 2 * f + 2 "
+                          f"({2 * self.num_remove + 2}), which not satisfy Krum/MultiKrum need.")
 
         if len(local_models) < self.num_remove + self.num_select:
             raise ValueError(f"Can't select {self.num_select} models and remove {self.num_remove} models "
@@ -66,7 +66,7 @@ class Krum(RobustFn):
 
     def _krum(self, vectors: Sequence[torch.Tensor]) -> int:
         # Calculate distance between any two vectors
-        distances = [torch.cat([vector.dist(other) for other in vectors]) for vector in vectors]
+        distances = [torch.stack([vector.dist(other) for other in vectors]) for vector in vectors]
 
         # Calculate their scores
         num_select = len(vectors) - self.num_remove - 2
@@ -176,11 +176,11 @@ class NormBound(RobustFn):
         models = []
         for model in local_models:
             vector = model_utils.model_to_vector(model)
-            grad = vector - global_vector
-            grad = grad / max(1, grad.norm() / self.threshold)
+            update = vector - global_vector
+            update = update / max(1, update.norm() / self.threshold)
 
             model = copy.deepcopy(model)
-            model_utils.vector_to_model(global_vector + grad, model)
+            model_utils.vector_to_model(global_vector + update, model)
             models.append(model)
 
         return models, list(weights) if weights else None

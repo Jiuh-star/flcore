@@ -23,7 +23,7 @@ def default_get_target(item: tuple[Feature, Target]) -> Target:
     :param item: An item from dataset.
     :return: Target of the item.
     """
-    return item[-1]
+    return item[-1].tolist() if isinstance(item[-1], torch.Tensor) else item[-1]
 
 
 def get_targets(dataset: Dataset,
@@ -49,6 +49,12 @@ def get_targets(dataset: Dataset,
         targets = []
         for _dataset in dataset.datasets:
             targets.extend(get_targets(_dataset))
+        return targets
+
+    # some user may use subset dataset
+    if isinstance(dataset, data.Subset):
+        targets = get_targets(dataset.dataset)
+        targets = [targets[index] for index in dataset.indices]
         return targets
 
     targets = [get_target(item) for item in dataset]
@@ -194,6 +200,39 @@ def generate_dirichlet_subsets(dataset: Dataset,
         )
 
     return subsets
+
+
+def generate_p_degree_subsets(dataset: Dataset,
+                              p: float,
+                              num_partition: int,
+                              get_target: Callable[[Any], Target] = default_get_target,
+                              ) -> list[data.Subset, ...]:
+    """
+    Generate subsets that follow p degree of non-IID. See *Local Model Poisoning Attacks to Byzantine Robust Federated
+    Learning*.
+
+    :param dataset: The source dataset.
+    :param p: The parameter of p degree of non-IID.
+    :param num_partition: The quantity of partition, namely the number of clients.
+    :param get_target: A callable that receives an item from dataset and then return its target.
+    :return: A list of subsets.
+    """
+    assert 0 < p < 1
+
+    called = 0
+    group_size = len(set(get_targets(dataset)))
+
+    def p_degree() -> list[float]:
+        nonlocal called
+
+        lth_group = [p / group_size] * group_size
+        no_lth_group = [(1 - p) / (num_partition - group_size)] * (num_partition - group_size)
+        fractions = no_lth_group[:called * group_size] + lth_group + no_lth_group[called * group_size:]
+        called += 1
+
+        return fractions
+
+    return partition_dataset(dataset, num_partition=num_partition, partition_func=p_degree, get_target=get_target)
 
 
 def generate_iid_subsets(dataset: Dataset,

@@ -32,8 +32,8 @@ class LogItem:
     def __rich_repr__(self) -> rich.repr.Result:
         yield self.epoch
         yield "message", self.message, ""
-        # we only log float metrics in terminal to make it clear
-        yield "metrics", {name: f"{value:.4f}" for name, value in self.metrics.items() if isinstance(value, float)}, {}
+        # we only log scalar metrics in terminal to make it clear
+        yield "metrics", {name: value for name, value in self.metrics.items() if isinstance(value, (float, int))}, {}
         yield "other", self.others, {}
 
 
@@ -159,7 +159,7 @@ class FederatedLearning(ABC):
         # Plot metric in tensorboard
         if self.tensorboard:
             for metric, value in log_item.metrics.items():
-                if isinstance(value, float):  # log scalar
+                if isinstance(value, (int, float)):  # log scalar
                     self.tensorboard.add_scalar(metric, value, global_step=log_item.epoch)
                 elif isinstance(value, dict):  # we don't log raw metric since its large quantity
                     pass

@@ -80,15 +80,15 @@ def vector_to_model(vector: torch.Tensor, model: nn.Module) -> None:
 
 
 @torch.no_grad()
-def aggregate_gradient(gradients: Iterable[torch.Tensor], weights: Iterable[float], *,
-                       out: torch.Tensor = None) -> torch.Tensor:
+def aggregate_update(updates: Iterable[torch.Tensor], weights: Iterable[float], *,
+                     out: torch.Tensor = None) -> torch.Tensor:
     """
     Aggregate gradients.
 
-    :param gradients: The gradient vectors.
-    :param weights: The weights of the gradients.
-    :param out: Aggregate the gradients to this tensor.
-    :return: The aggregated gradient.
+    :param updates: The gradient vectors.
+    :param weights: The weights of the updates.
+    :param out: Aggregate the updates to this tensor.
+    :return: The aggregated update.
 
     :raise ValueError: If the number of gradients and weights are not equal.
     """
@@ -97,8 +97,8 @@ def aggregate_gradient(gradients: Iterable[torch.Tensor], weights: Iterable[floa
     else:
         out.zero_()
 
-    for weight, grad in zip(weights, gradients, strict=True):
-        out += weight * grad
+    for weight, update in zip(weights, updates, strict=True):
+        out += weight * update
 
     return out
 
@@ -115,10 +115,10 @@ def aggregate_vector(global_vector: torch.Tensor, local_vectors: Iterable[torch.
     :param out: Aggregate the vectors to this tensor.
     :return: The aggregated vector.
     """
-    local_grads = (vector - global_vector for vector in local_vectors)
-    gradient = aggregate_gradient(local_grads, weights)
+    updates = (vector - global_vector for vector in local_vectors)
+    update = aggregate_update(updates, weights)
 
-    return torch.add(global_vector, gradient, out=out)
+    return torch.add(global_vector, update, out=out)
 
 
 @torch.no_grad()
