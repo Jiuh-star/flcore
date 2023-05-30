@@ -1,9 +1,8 @@
 **/__pycache__
 data
-
 .*
 !.gitignore
-
 tests/data
 tests/output
 tests/.pytest_cache
+output

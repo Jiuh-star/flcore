@@ -1,101 +1,99 @@
 from __future__ import annotations
 
+import copy
+import typing as T
+import warnings
 from abc import abstractmethod
-from typing import NewType, Protocol, runtime_checkable
 
 import torch
 import torch.nn as nn
-import torch.optim as optim
-import torch.utils.data as data
 
-from .utils import model as model_utils
+__all__ = ["ClientProtocol", "MetricResult", "Channel"]
 
-MetricResult = NewType("MetricResult", dict[str, float])
+Channel = T.NewType("Channel", T.Any)
+MetricResult = T.NewType("MetricResult", dict[str, float])
 
 
-@runtime_checkable
-class ClientProtocol(Protocol):
+@T.runtime_checkable
+class ClientProtocol(T.Protocol):
     """
     The protocol of client. A client is a device that has a local model and can train, evaluate and test the model.
     """
-    id: str
-    model: nn.Module
-    learning_rate: float
-    max_epoch: int
+
+    id: T.Hashable
     device: torch.device
-    train_dataloader: data.DataLoader
-    eval_dataloader: data.DataLoader
-    test_dataloader: data.DataLoader
-    optimizer: optim.Optimizer
-    loss_fn: nn.Module
-
-    def setup(self, *, id_: str, model: nn.Module, learning_rate: float, max_epoch: int,
-              train_dataloader: data.DataLoader, eval_dataloader: data.DataLoader, test_dataloader: data.DataLoader,
-              device: torch.device, optimizer: optim.Optimizer, loss_fn: nn.Module):
-        """
-        A solution of `__init__()` problem when subclass `Protocol`. This method set up client's attributes.
-
-        :param id_:  Identification of the client.
-        :param model: The model of client, namely a local model.
-        :param learning_rate: The learning rate of local model.
-        :param max_epoch: The max epoch of local model training. Typically set to 1.
-        :param train_dataloader: The dataloader for model train.
-        :param eval_dataloader: The dataloader for model evaluation.
-        :param test_dataloader: The dataloader for model test.
-        :param device: Which device does the local model used. Typically set to cuda.
-        :param optimizer: The optimizer of local model.
-        :param loss_fn: The loss function of local model.
-        """
-        self.id = id_
-        self.model = model
-        self.learning_rate = learning_rate
-        self.max_epoch = max_epoch
-        self.train_dataloader = train_dataloader
-        self.eval_dataloader = eval_dataloader
-        self.test_dataloader = test_dataloader
-        self.device = device
-        self.optimizer = optimizer
-        self.loss_fn = loss_fn
+    dataset_size: int
+    _context: dict
 
     @abstractmethod
-    def train(self, dataloader: data.DataLoader):
+    def train(self):
         """
-        Training the local model with `dataloader`.
-
-        :param dataloader: The dataloader for training.
+        Training the local model.
         """
         raise NotImplementedError
 
     @abstractmethod
-    def evaluate(self, dataloader: data.DataLoader) -> MetricResult:
+    def evaluate(self) -> MetricResult:
         """
-        Evaluating the local model with `dataloader`.
+        Evaluating the local model.
 
-        :param dataloader: The dataloader for evaluation.
         :return: The evaluated result.
         """
         raise NotImplementedError
 
-    @property
-    def train_dataset(self):
-        """ The training dataset. """
-        return self.train_dataloader.dataset
-
-    @property
-    def eval_dataset(self):
-        """ The evaluation dataset. """
-        return self.eval_dataloader.dataset
-
-    @property
-    def test_dataset(self):
-        """ The test dataset. """
-        return self.test_dataloader.dataset
-
-    def receive_model(self, new_model: nn.Module):
+    @abstractmethod
+    def test(self) -> MetricResult:
         """
-        Receive a new model, which typically, a global model. The method make sure the optimizer of the client tracks
-        the valid model parameters.
+        Testing the local model.
 
-        :param new_model: The new model.
+        :return: The tested result.
         """
-        model_utils.move_parameters(new_model, self.model, zero_grad=True)
+        raise NotImplementedError
+
+    @property
+    def model(self) -> nn.Module:
+        """
+        :return: The local model.
+        """
+        if model := self._context.get("model", None):
+            return model
+        raise RuntimeError("The model is not received yet.")
+
+    def connect(self) -> Channel:
+        """
+        Connect to a server.
+
+        :return: The channel to the server.
+        """
+        self._context = {}
+        return Channel(self)
+
+    def close(self):
+        if hasattr(self, "_context"):
+            del self._context
+
+    def receive_model(self, model: nn.Module):
+        """
+        Receive a model.
+
+        :param model: The new model.
+        """
+        self._context["model"] = copy.deepcopy(model).to(self.device)
+
+    def send_model(self) -> nn.Module:
+        """
+        Send the local model to the server.
+        """
+        return copy.deepcopy(self.model).cpu()
+
+    def __enter__(self) -> Channel:
+        return self.connect()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            warnings.warn(
+                f"An Exception was raised: {exc_type} - {exc_val}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        self.close()

@@ -1,24 +1,31 @@
 from __future__ import annotations
 
-import copy
 import math
 import random
-from typing import Optional, Sequence, TypeVar, NewType, Callable
+import typing as T
 
 import torch
-import torch.utils.data as data
+import torch.nn as nn
 
-from .client import MetricResult, ClientProtocol
+from .client import ClientProtocol, MetricResult
 from .utils import model as model_utils
-from .utils import robust
+from .utils.robust import RobustFn
 
-Client = TypeVar("Client", bound=ClientProtocol)
-EvaluationResult = NewType("EvaluationResult", dict[str, float | dict[str, float]])
+EvaluationResult = T.NewType(
+    "EvaluationResult", dict[str, MetricResult | dict[str, MetricResult]]
+)
 
 
 class Server:
-    def __init__(self, *, select_ratio: float, max_epoch: int, learning_rate: float = 1.0,
-                 robust_fn: robust.RobustFn = None):
+    def __init__(
+            self,
+            *,
+            model: nn.Module,
+            select_ratio: float,
+            max_epoch: int,
+            learning_rate: float = 1.0,
+            robust_fn: T.Optional[RobustFn] = None,
+    ):
         """
         The server in federated learning. It works with some clients in ``FederatedLearning``.
 
@@ -30,14 +37,14 @@ class Server:
         :param learning_rate: The global learning rate, this works in aggregation.
         :param robust_fn: The robust aggregation function.
         """
+        self.model = model
         self.select_ratio = select_ratio
         self.max_epoch = max_epoch
         self.learning_rate = learning_rate
-        self.registered_clients: list[Client | ClientProtocol] = []
         self.robust_fn = robust_fn
-        self._model: Optional[torch.nn.Module] = None
+        self.registered_clients: list[ClientProtocol] = []
 
-    def register_client(self, client: Client):
+    def register_client(self, client: ClientProtocol):
         """
         Register a client to server.
 
@@ -54,31 +61,33 @@ class Server:
 
         self.registered_clients.append(client)
 
-    def unregister_client(self, id_: str) -> Client | None:
+    def unregister_client(self, id_: str) -> ClientProtocol | None:
         """
         Unregister a client in server, return this client.
 
         :param id_: Client id
         :return: A client or None if no this client
         """
-
-        for i, client in enumerate(self.registered_clients):
-            if client.id == id_:
+        hashed_id = hash(id_)
+        for client in self.registered_clients:
+            if hash(client.id) == hashed_id:
                 return self.registered_clients.pop()
         return None
 
-    def get_client(self, id_: str) -> Client | None:
+    def get_client(self, id_: T.Hashable) -> ClientProtocol | None:
         """
         Get the registered client of `id`.
 
         :param id_: Client's id
         :return: The client, or None if not found
         """
+        hashed_id = hash(id_)
         for client in self.registered_clients:
-            if client.id == id_:
+            if hash(client.id) == hashed_id:
                 return client
+        return None
 
-    def select_clients(self) -> list[Client]:
+    def select_clients(self) -> list[ClientProtocol]:
         """
         Randomly select ``int(select_ratio * num_registered_clients)`` clients.
 
@@ -88,59 +97,35 @@ class Server:
         selected_clients = random.sample(self.registered_clients, k=num_select)
         return selected_clients
 
-    @property
-    def model(self) -> torch.nn.Module:
-        """
-        Server's model, namely global model.
-        """
-        if self._model is None:
-            assert len(self.registered_clients) > 0
-
-            self._model = copy.deepcopy(self.registered_clients[0].model)
-            self._model.requires_grad_(False)
-            # Average model initiate parameters first will make the model un-trainable.
-            # self.aggregate(self.registered_clients)
-
-        return self._model
-
-    @model.setter
-    def model(self, new_model: torch.nn.Module):
-        self._model = new_model
-
-    def aggregate(self, clients: Sequence[ClientProtocol], weights: Sequence[float] = None,
-                  robust_fn: robust.RobustFn = None):
+    def aggregate(self, models: T.Sequence[nn.Module], weights: T.Sequence[float]):
         """
         Aggregate local models to global model by aggregating updates (delta of models). Each model update will be
         multiplied by server's learning rate and corresponding weight to perform aggregation.
 
-        :param clients: Clients to be aggregated.
+        :param models: Models to be aggregated.
         :param weights: Weight that corresponding model update, expected the sum equals to 1.
-        :param robust_fn: Robust function, specified it explicitly to make the code in FederatedLearning
-        straightforward.
 
-        :raises ValueError: When no client in clients.
+        :raises ValueError: When no models to be aggregated.
+        :raises ValueError: When the length of weights and models are not the same.
         :raises ValueError: When sum of weights is not 1.
         """
-        if len(clients) == 0:
-            raise ValueError("Not enough clients to perform aggregation.")
+        if len(models) == 0:
+            raise ValueError("Not enough models to perform aggregation.")
 
-        if weights is None:
-            dataset_size = sum([len(client.train_dataset) for client in clients])
-            weights = [len(client.train_dataset) / dataset_size for client in clients]
+        if len(weights) != len(models):
+            raise ValueError(
+                f"The length of weights ({len(weights)}) and clients ({len(models)}) are not the same."
+            )
 
-        if len(weights) != len(clients):
-            raise ValueError(f"The length of weights ({len(weights)}) and clients ({len(clients)}) are not the same.")
+        if not math.isclose(math.fsum(weights), 1.0):
+            raise ValueError(
+                f"The sum of weights should be closed to 1, got {sum(weights)}."
+            )
 
-        if not math.isclose(math.fsum(weights), 1., abs_tol=1E-5):
-            raise ValueError(f"The sum of weights should close to 1, got {sum(weights)}.")
+        if self.robust_fn:
+            models, weights = self.robust_fn(self.model, models, weights)
 
-        local_models = [client.model for client in clients]
-
-        if robust_fn := robust_fn or self.robust_fn:
-            local_models, weights = robust_fn(self.model, local_models, weights)
-            weights = [1 / len(local_models)] * len(local_models) if weights is None else weights
-
-        self.model = model_utils.aggregate_model(self.model, local_models, weights)
+        self.model = model_utils.aggregate_model(self.model, models, weights)
 
     def evaluate(self) -> EvaluationResult:
         """
@@ -148,7 +133,7 @@ class Server:
 
         :return: Mean, std and raw values of client evaluation result of each metric.
         """
-        return self._eval(lambda client: client.eval_dataloader)
+        return self._eval(stage="evaluate")
 
     def test(self) -> EvaluationResult:
         """
@@ -156,53 +141,49 @@ class Server:
 
         :return: Mean, std and raw values of client test result of each metric.
         """
-        return self._eval(lambda client: client.test_dataloader)
+        return self._eval(stage="test")
 
-    def _eval(self, load_dataloader: Callable[[ClientProtocol], data.DataLoader]) -> EvaluationResult:
-        """ evaluate all models in client with dataloader from load_dataloader. """
-        self.registered_clients: list[ClientProtocol]
-        client_metric_result: dict[str, MetricResult]
+    def _eval(self, stage: T.Literal["evaluate", "test"]) -> EvaluationResult:
+        """evaluate all models in clients"""
+        client_metric_result: dict[T.Hashable, MetricResult] = {}
 
         for client in self.registered_clients:
-            client.receive_model(self.model)
-
-        client_metric_result = {
-            client.id: client.evaluate(load_dataloader(client))
-            for client in self.registered_clients
-        }
+            with client:
+                client.receive_model(self.model)
+                eval_fn = getattr(client, stage)
+                client_metric_result[client.id] = eval_fn()
 
         metric_client_result = self._collect_evaluation_results(client_metric_result)
         evaluation_result = self._analyze_evaluation_results(metric_client_result)
 
-        return EvaluationResult(evaluation_result)
+        return evaluation_result
 
     @staticmethod
-    def _collect_evaluation_results(client_metric_result: dict[str, MetricResult]) -> dict[str, dict[str, float]]:
+    def _collect_evaluation_results(
+            client_metric_result: dict[T.Hashable, MetricResult]
+    ) -> dict[str, dict[T.Hashable, float]]:
         """
-        Rotate a recursive dict ``{client: {metric, result}}`` to ``{metric: {client: result}}``.
+        Rotate a recursive dict ``{client: {metric: result}}`` to ``{metric: {client: result}}``.
         """
-        if not client_metric_result:  # nothing to rotate
-            return {}
-
-        sample = list(client_metric_result.values())[0]  # a MetricResult instance
-        metrics = list(sample.keys())  # get metric names
-
-        # do rotate
+        # rotate client_metric_result
         metric_client_result = {}
-        for metric in metrics:
-            metric_client_result[metric] = {client: mr[metric] for client, mr in client_metric_result.items()}
+        for client, metric_result in client_metric_result.items():
+            for metric, result in metric_result.items():
+                metric_client_result.setdefault(metric, {})[client] = result
 
         return metric_client_result
 
     @staticmethod
-    def _analyze_evaluation_results(metric_client_result: dict[str, dict[str, float]]) -> EvaluationResult:
+    def _analyze_evaluation_results(
+            metric_client_result: dict[str, dict[T.Hashable, float]]
+    ) -> EvaluationResult:
         """
         Compute mean and std of each metric results.
         """
         evaluation_result = {}
         for metric, client_result in metric_client_result.items():
-            results = list(client_result.values())
-            evaluation_result[f"{metric} (mean)"] = torch.tensor(results).mean().item()
-            evaluation_result[f"{metric} (std)"] = torch.tensor(results).std(None).item()
+            results = torch.tensor(list(client_result.values()))
+            evaluation_result[f"{metric} (mean)"] = results.mean().item()
+            evaluation_result[f"{metric} (std)"] = results.std(None).item()
             evaluation_result[f"{metric} (raw)"] = client_result
         return EvaluationResult(evaluation_result)
