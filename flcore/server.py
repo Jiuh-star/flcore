@@ -43,6 +43,7 @@ class Server:
         self.learning_rate = learning_rate
         self.robust_fn = robust_fn
         self.registered_clients: list[ClientProtocol] = []
+        self._pool = []
 
     def register_client(self, client: ClientProtocol):
         """
@@ -96,6 +97,16 @@ class Server:
         num_select = int(len(self.registered_clients) * self.select_ratio)
         selected_clients = random.sample(self.registered_clients, k=num_select)
         return selected_clients
+
+    @staticmethod
+    def connect_clients(clients: T.Iterable[ClientProtocol]):
+        for client in clients:
+            client.connect()
+
+    @staticmethod
+    def close_clients(clients: T.Iterable[ClientProtocol]):
+        for client in clients:
+            client.close()
 
     def aggregate(self, models: T.Sequence[nn.Module], weights: T.Sequence[float]):
         """

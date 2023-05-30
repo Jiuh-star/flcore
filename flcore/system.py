@@ -69,6 +69,9 @@ class _Progress(rich.progress.Progress):
         :param kwargs: Other keyword arguments in rich.progress.Progress.track()
         :return: The element in sequence.
         """
+        if not sequence:
+            return sequence
+
         if header not in self.header_task:
             self.header_task[header] = self.add_task(header)
 

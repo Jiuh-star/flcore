@@ -24,6 +24,7 @@ class ClientProtocol(T.Protocol):
     device: torch.device
     dataset_size: int
     _context: dict
+    _conn_count: int = 0
 
     @abstractmethod
     def train(self):
@@ -65,11 +66,17 @@ class ClientProtocol(T.Protocol):
 
         :return: The channel to the server.
         """
-        self._context = {}
+        if self._conn_count == 0:
+            self._context = {}
+
+        self._conn_count += 1
+
         return Channel(self)
 
     def close(self):
-        if hasattr(self, "_context"):
+        self._conn_count -= 1
+
+        if self._conn_count <= 0 and hasattr(self, "_context"):
             del self._context
 
     def receive_model(self, model: nn.Module):
