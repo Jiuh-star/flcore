@@ -1,10 +1,10 @@
 import pytest
 
-import flcore.utils.io as io
+import flcore.utils.atomic_io as atomic_io
 
 
 def test_dump_success(tmp_path):
-    io.dump(obj=1, filename=tmp_path / "test_dump_success.pt", replace=True)
+    atomic_io.dump(obj=1, filename=tmp_path / "test_dump_success.pt", replace=True)
 
 
 def test_dump_fail_file_exists(tmp_path):
@@ -12,7 +12,7 @@ def test_dump_fail_file_exists(tmp_path):
     filename.touch()
 
     with pytest.raises(FileExistsError):
-        io.dump(obj=1, filename=filename, replace=False)
+        atomic_io.dump(obj=1, filename=filename, replace=False)
 
 
 def test_dump_atomicity(tmp_path):
@@ -20,20 +20,20 @@ def test_dump_atomicity(tmp_path):
     temp_filename = filename.with_suffix(".tmp")
     temp_filename.touch()
 
-    io.dump(obj=1, filename=filename, replace=True)
+    atomic_io.dump(obj=1, filename=filename, replace=True)
 
     assert temp_filename.exists() is False
 
 
 def test_load_success(tmp_path):
     filename = tmp_path / "test_load_success.pt"
-    io.dump(obj=1, filename=filename, replace=True)
+    atomic_io.dump(obj=1, filename=filename, replace=True)
 
-    assert io.load(filename=filename) == 1
+    assert atomic_io.load(filename=filename) == 1
 
 
 def test_load_fail_file_not_exists(tmp_path):
     filename = tmp_path / "test_load_fail_file_not_exists.pt"
 
     with pytest.raises(FileNotFoundError):
-        io.load(filename=filename)
+        atomic_io.load(filename=filename)

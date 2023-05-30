@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import copy
-from typing import Sequence, Callable, Optional, Iterable
+import typing as T
 
 import torch
 import torch.nn as nn
 
 
 @torch.no_grad()
-def move_parameters(from_: nn.Module, to: nn.Module, *, buffer: bool = False, zero_grad: bool = False):
+def move_parameters(
+        from_: nn.Module, to: nn.Module, *, buffer: bool = False, zero_grad: bool = False
+):
     """
     Move parameters from one model to another.
 
@@ -20,7 +22,9 @@ def move_parameters(from_: nn.Module, to: nn.Module, *, buffer: bool = False, ze
     if buffer:
         to.load_state_dict(from_.state_dict())
     else:
-        for from_param, to_param in zip(from_.parameters(), to.parameters(), strict=True):
+        for from_param, to_param in zip(
+                from_.parameters(), to.parameters(), strict=True
+        ):
             to_param.data.copy_(from_param.data)
 
     if zero_grad:
@@ -80,8 +84,12 @@ def vector_to_model(vector: torch.Tensor, model: nn.Module) -> None:
 
 
 @torch.no_grad()
-def aggregate_update(updates: Iterable[torch.Tensor], weights: Iterable[float], *,
-                     out: torch.Tensor = None) -> torch.Tensor:
+def aggregate_update(
+        updates: T.Iterable[torch.Tensor],
+        weights: T.Iterable[float],
+        *,
+        out: T.Optional[torch.Tensor] = None,
+) -> torch.Tensor:
     """
     Aggregate gradients.
 
@@ -93,19 +101,24 @@ def aggregate_update(updates: Iterable[torch.Tensor], weights: Iterable[float], 
     :raise ValueError: If the number of gradients and weights are not equal.
     """
     if out is None:
-        out = 0
+        out = 0  # type: ignore
     else:
         out.zero_()
 
     for weight, update in zip(weights, updates, strict=True):
         out += weight * update
 
-    return out
+    return out  # type: ignore
 
 
 @torch.no_grad()
-def aggregate_vector(global_vector: torch.Tensor, local_vectors: Iterable[torch.Tensor], weights: Iterable[float], *,
-                     out: torch.Tensor = None) -> torch.Tensor:
+def aggregate_vector(
+        global_vector: torch.Tensor,
+        local_vectors: T.Iterable[torch.Tensor],
+        weights: T.Iterable[float],
+        *,
+        out: T.Optional[torch.Tensor] = None,
+) -> torch.Tensor:
     """
     Aggregate vectors.
 
@@ -122,7 +135,9 @@ def aggregate_vector(global_vector: torch.Tensor, local_vectors: Iterable[torch.
 
 
 @torch.no_grad()
-def aggregate_model(global_model: nn.Module, local_models: Iterable[nn.Module], weights: Iterable[float]) -> nn.Module:
+def aggregate_model(
+        global_model: nn.Module, local_models: T.Iterable[nn.Module], weights: T.Iterable[float]
+) -> nn.Module:
     """
     Aggregate models.
 
@@ -134,7 +149,9 @@ def aggregate_model(global_model: nn.Module, local_models: Iterable[nn.Module], 
     global_vector = model_to_vector(global_model)
     local_vectors = (model_to_vector(local_model) for local_model in local_models)
 
-    global_vector = aggregate_vector(global_vector, local_vectors, weights, out=global_vector)
+    global_vector = aggregate_vector(
+        global_vector, local_vectors, weights, out=global_vector
+    )
     vector_to_model(global_vector, global_model)
 
     return global_model
@@ -142,8 +159,10 @@ def aggregate_model(global_model: nn.Module, local_models: Iterable[nn.Module], 
 
 @torch.no_grad()
 def layer_map(
-        function: Callable[[tuple[torch.Tensor, ...]], torch.Tensor], models: Sequence[nn.Module], *,
-        out: nn.Module = None
+        function: T.Callable[[tuple[torch.Tensor, ...]], torch.Tensor],
+        models: T.Sequence[nn.Module],
+        *,
+        out: T.Optional[nn.Module] = None,
 ) -> nn.Module:
     """
     Map a function to the parameters of the layers of the models.
@@ -155,7 +174,9 @@ def layer_map(
     """
     out = out or copy.deepcopy(models[0])
 
-    for out_param, *params in zip(out.parameters(), *[model.parameters() for model in models]):
+    for out_param, *params in zip(
+            out.parameters(), *[model.parameters() for model in models]
+    ):
         params = tuple([param.data for param in params])
         result = function(params)
         out_param.data.copy_(result)
@@ -164,7 +185,7 @@ def layer_map(
 
 
 # From PyTorch
-def _check_param_device(param: torch.Tensor, old_param_device: Optional[int]) -> int:
+def _check_param_device(param: torch.Tensor, old_param_device: T.Optional[int]) -> int:
     """
     Check if the parameter is located in the same device as the previous parameters.
     """
@@ -173,10 +194,12 @@ def _check_param_device(param: torch.Tensor, old_param_device: Optional[int]) ->
         old_param_device = param.get_device() if param.is_cuda else -1
     else:
         if param.is_cuda:  # Check if in same GPU
-            warn = (param.get_device() != old_param_device)
+            warn = param.get_device() != old_param_device
         else:  # Check if in CPU
-            warn = (old_param_device != -1)
+            warn = old_param_device != -1
         if warn:
-            raise TypeError('Found two parameters on different devices, '
-                            'this is currently not supported.')
+            raise TypeError(
+                "Found two parameters on different devices, "
+                "this is currently not supported."
+            )
     return old_param_device

@@ -3,20 +3,20 @@ from __future__ import annotations
 
 import math
 import random
-from typing import Callable, Any, Sized, TypeVar, Sequence, TypeAlias
+import typing as T
 
 import more_itertools
 import torch
 import torch.distributions as distributions
 import torch.utils.data as data
 
-T = TypeVar("T")
-Feature = TypeVar("Feature")
-Target = TypeVar("Target")
-Dataset: TypeAlias = data.Dataset | Sized
+_T = T.TypeVar("_T")
+Feature = T.TypeVar("Feature")
+Target = T.TypeVar("Target")
+Dataset: T.TypeAlias = data.Dataset
 
 
-def default_get_target(item: tuple[Feature, Target]) -> Target:
+def default_get_target(item: tuple[T.Any, Target]) -> Target:
     """
     Default function that receives an item from dataset, and then return its target.
 
@@ -26,8 +26,9 @@ def default_get_target(item: tuple[Feature, Target]) -> Target:
     return item[-1].tolist() if isinstance(item[-1], torch.Tensor) else item[-1]
 
 
-def get_targets(dataset: Dataset,
-                get_target: Callable[[Any], Target] = default_get_target) -> list[Target]:
+def get_targets(
+        dataset: Dataset, get_target: T.Callable[[T.Any], Target] = default_get_target
+) -> list[Target]:
     """
     Get targets from dataset.
 
@@ -35,12 +36,11 @@ def get_targets(dataset: Dataset,
     :param get_target: A callable that receives an item from dataset and then return its target.
     :return: A list of targets of dataset.
     """
-    # dataset from torchvision has attribute targets
+    # dataset from torchvision may have attribute targets
     if hasattr(dataset, "targets"):
-        targets = dataset.targets
+        targets = getattr(dataset, "targets")
         # some targets are Tensor type
-        if isinstance(targets, torch.Tensor):
-            targets = targets.tolist()
+        targets = targets.tolist() if isinstance(targets, torch.Tensor) else targets
 
         return list(targets)
 
@@ -51,8 +51,8 @@ def get_targets(dataset: Dataset,
             targets.extend(get_targets(_dataset))
         return targets
 
-    # some user may use subset dataset
-    if isinstance(dataset, data.Subset):
+    # some user may use subset dataset, note that currently we don't support nested subset
+    if isinstance(dataset, data.Subset) and hasattr(dataset.dataset, "targets"):
         targets = get_targets(dataset.dataset)
         targets = [targets[index] for index in dataset.indices]
         return targets
@@ -61,7 +61,7 @@ def get_targets(dataset: Dataset,
     return targets
 
 
-def collect_targets(targets: Sequence[Target]) -> dict[Target, list[Target]]:
+def collect_targets(targets: T.Sequence[Target]) -> dict[Target, list[Target]]:
     """
     Collect and classify the targets to a dict. In dict, the keys are targets and value are corresponding indexes.
 
@@ -74,9 +74,11 @@ def collect_targets(targets: Sequence[Target]) -> dict[Target, list[Target]]:
     return target_indexes
 
 
-def random_split(values: Sequence[T],
-                 lengths: Sequence[int | float] = None,
-                 fractions: Sequence[float] = None) -> list[list[T]]:
+def random_split(
+        values: T.Sequence[_T],
+        lengths: T.Optional[T.Sequence[int]] = None,
+        fractions: T.Optional[T.Sequence[float]] = None,
+) -> list[list[_T]]:
     """
     Randomly split *values* into some list of value.
 
@@ -88,7 +90,9 @@ def random_split(values: Sequence[T],
     :raises ValueError: If lengths or fractions are not legal.
     """
     if lengths and fractions:
-        raise ValueError("Both lengths and fractions are specified, consider remove one.")
+        raise ValueError(
+            "Both lengths and fractions are specified, consider remove one."
+        )
 
     if not lengths and not fractions:
         raise ValueError("No values in lengths and fractions at the same time.")
@@ -97,7 +101,7 @@ def random_split(values: Sequence[T],
         raise ValueError("Sum of lengths is not equals to values length.")
 
     if fractions:
-        if not math.isclose(sum(fractions), 1., abs_tol=1E-5):
+        if not math.isclose(sum(fractions), 1.0, abs_tol=1e-5):
             raise ValueError("Sum of fractions is not close enough to 1.")
 
         # fractions to lengths
@@ -110,7 +114,7 @@ def random_split(values: Sequence[T],
 
         # sum(lengths) may not exactly equals to len(values)
         remainder = len(values) - sum(lengths)
-        remainder = remainder if remainder >= 0 else - remainder
+        remainder = remainder if remainder >= 0 else -remainder
         step = 1 if remainder >= 0 else -1
 
         # put remainder into lengths
@@ -119,15 +123,17 @@ def random_split(values: Sequence[T],
 
     values = list(values)
     random.shuffle(values)
-    values = list(more_itertools.split_into(values, lengths))
+    values = list(more_itertools.split_into(values, lengths))  # type: ignore
 
-    return values
+    return values  # type: ignore
 
 
-def partition_dataset(dataset: Dataset,
-                      num_partition: int,
-                      partition_func: Callable[[], list[float]],
-                      get_target: Callable[[Any], Target] = default_get_target) -> list[data.Subset, ...]:
+def partition_dataset(
+        dataset: Dataset,
+        num_partition: int,
+        partition_func: T.Callable[[], list[float]],
+        get_target: T.Callable[[T.Any], T.Any] = default_get_target,
+) -> list[data.Subset]:
     """
     Partition dataset into *num_partition* parts, the lengths of the parts follow the return value of *partition_func*.
 
@@ -147,16 +153,22 @@ def partition_dataset(dataset: Dataset,
     for target in target_indexes:
         fractions = partition_func()
         if len(fractions) != num_partition:
-            raise ValueError(f"The length of partition_func() return ({len(fractions)}) "
-                             f"is not equal to num_partition ({num_partition}).")
+            raise ValueError(
+                f"The length of partition_func() return ({len(fractions)}) "
+                f"is not equal to num_partition ({num_partition})."
+            )
 
-        target_split_indexes[target] = random_split(target_indexes[target], fractions=fractions)
+        target_split_indexes[target] = random_split(
+            target_indexes[target], fractions=fractions
+        )
 
     # make subsets
     subsets = []
     for _ in range(num_partition):  # for each partition
         indexes = []
-        for target in target_split_indexes:  # put split indexes of each class to a partition
+        for (
+                target
+        ) in target_split_indexes:  # put split indexes of each class to a partition
             indexes.extend(target_split_indexes[target].pop())
 
         subset = data.Subset(dataset, indexes)
@@ -165,11 +177,13 @@ def partition_dataset(dataset: Dataset,
     return subsets
 
 
-def generate_dirichlet_subsets(dataset: Dataset,
-                               alphas: Sequence[float],
-                               get_target: Callable[[Any], Target] = default_get_target,
-                               min_data: int = 10,
-                               max_retry: int = 10) -> list[data.Subset, ...]:
+def generate_dirichlet_subsets(
+        dataset: Dataset,
+        alphas: T.Sequence[float],
+        get_target: T.Callable[[T.Any], T.Any] = default_get_target,
+        min_data: int = 10,
+        max_retry: int = 10,
+) -> list[data.Subset]:
     """
     Generate subsets that follow dirichlet distribution.
 
@@ -190,7 +204,12 @@ def generate_dirichlet_subsets(dataset: Dataset,
 
     # verify min_data was satisfied
     for _ in range(max_retry):
-        subsets = partition_dataset(dataset, num_partition=len(alphas), partition_func=dirichlet, get_target=get_target)
+        subsets = partition_dataset(
+            dataset,
+            num_partition=len(alphas),
+            partition_func=dirichlet,
+            get_target=get_target,
+        )
         if all([len(subset) >= min_data for subset in subsets]):
             break
     else:
@@ -202,11 +221,12 @@ def generate_dirichlet_subsets(dataset: Dataset,
     return subsets
 
 
-def generate_p_degree_subsets(dataset: Dataset,
-                              p: float,
-                              num_partition: int,
-                              get_target: Callable[[Any], Target] = default_get_target,
-                              ) -> list[data.Subset, ...]:
+def generate_p_degree_subsets(
+        dataset: Dataset,
+        p: float,
+        num_partition: int,
+        get_target: T.Callable[[T.Any], T.Any] = default_get_target,
+) -> list[data.Subset]:
     """
     Generate subsets that follow p degree of non-IID. See *Local Model Poisoning Attacks to Byzantine Robust Federated
     Learning*.
@@ -226,18 +246,31 @@ def generate_p_degree_subsets(dataset: Dataset,
         nonlocal called
 
         lth_group = [p / group_size] * group_size
-        no_lth_group = [(1 - p) / (num_partition - group_size)] * (num_partition - group_size)
-        fractions = no_lth_group[:called * group_size] + lth_group + no_lth_group[called * group_size:]
+        no_lth_group = [(1 - p) / (num_partition - group_size)] * (
+                num_partition - group_size
+        )
+        fractions = (
+                no_lth_group[: called * group_size]
+                + lth_group
+                + no_lth_group[called * group_size:]
+        )
         called += 1
 
         return fractions
 
-    return partition_dataset(dataset, num_partition=num_partition, partition_func=p_degree, get_target=get_target)
+    return partition_dataset(
+        dataset,
+        num_partition=num_partition,
+        partition_func=p_degree,
+        get_target=get_target,
+    )
 
 
-def generate_iid_subsets(dataset: Dataset,
-                         num_partition: int,
-                         get_target: Callable[[Any], Target] = default_get_target) -> list[data.Subset, ...]:
+def generate_iid_subsets(
+        dataset: Dataset,
+        num_partition: int,
+        get_target: T.Callable[[T.Any], T.Any] = default_get_target,
+) -> list[data.Subset]:
     """
     Generate subsets that follow IID.
 
@@ -246,6 +279,9 @@ def generate_iid_subsets(dataset: Dataset,
     :param get_target: A callable that receives an item from dataset and then return its target.
     :return: An IID subsets.
     """
-    return partition_dataset(dataset, num_partition=num_partition,
-                             partition_func=lambda: [1 / num_partition] * num_partition,
-                             get_target=get_target)
+    return partition_dataset(
+        dataset,
+        num_partition=num_partition,
+        partition_func=lambda: [1 / num_partition] * num_partition,
+        get_target=get_target,
+    )

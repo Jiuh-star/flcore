@@ -3,20 +3,20 @@ from __future__ import annotations
 import dataclasses
 import pathlib
 import time
+import typing as T
 from abc import ABC, abstractmethod
-from typing import Sequence, Iterator, TypeVar
 
 import rich.progress
 import rich.repr
 import rich.table
 import rich.text
 import torch.nn as nn
-import torch.utils.tensorboard as tb
+from torch.utils.tensorboard.writer import SummaryWriter
 
-from .server import Server, EvaluationResult
-from .utils import io
+from .server import EvaluationResult, Server
+from .utils import atomic_io
 
-T = TypeVar("T")
+_T = T.TypeVar("_T")
 
 
 @dataclasses.dataclass
@@ -26,7 +26,7 @@ class LogItem:
     """
     epoch: int
     message: str = ""
-    metrics: EvaluationResult = dataclasses.field(default_factory=dict)
+    metrics: EvaluationResult = dataclasses.field(default_factory=lambda: EvaluationResult({}))
     others: dict = dataclasses.field(default_factory=dict)
 
     def __rich_repr__(self) -> rich.repr.Result:
@@ -35,15 +35,6 @@ class LogItem:
         # we only log scalar metrics in terminal to make it clear
         yield "metrics", {name: value for name, value in self.metrics.items() if isinstance(value, (float, int))}, {}
         yield "other", self.others, {}
-
-
-@dataclasses.dataclass
-class ServerCheckpoint:
-    """
-    The checkpoint of the server in federated learning.
-    """
-    epoch: int
-    server: Server
 
 
 class _SpeedColumn(rich.progress.ProgressColumn):
@@ -69,7 +60,7 @@ class _Progress(rich.progress.Progress):
         )
         self.header_task = {}
 
-    def __call__(self, sequence: Sequence[T], header: str, **kwargs) -> Iterator[T]:
+    def __call__(self, sequence: T.Sequence[_T], header: str, **kwargs) -> T.Iterator[_T]:
         """
         Track the `sequence` and print progress bar in terminal with title `header`.
 
@@ -102,7 +93,7 @@ class FederatedLearning(ABC):
         """
         self.server = server
         self.log_dir = pathlib.Path(log_dir)
-        self.tensorboard = tb.SummaryWriter(log_dir) if tensorboard else None
+        self.tensorboard = SummaryWriter(log_dir) if tensorboard else None
         self.logbook: list[LogItem] = []
         self.progress = _Progress()
 
@@ -133,13 +124,20 @@ class FederatedLearning(ABC):
             epoch = self.logbook[-1].epoch if self.logbook else -1
             if epoch >= 0:
                 self.progress.log("Interruption detected, saving the server and clients.", style="red bold")
+
+                # safely close all clients
+                for client in self.server.registered_clients:
+                    client.close()
+
                 epoch = self.logbook[-1].epoch
-                io.dump(ServerCheckpoint(epoch, self.server), self.log_dir / f"server-{epoch}.ckpt", replace=True)
+
+                atomic_io.dump(self.server, self.log_dir / f"server-{epoch}.ckpt", replace=True)
+
             exit(0)
 
         return model
 
-    def log(self, log_item: LogItem, *, big_item: bool = False, filename: str = None):
+    def log(self, log_item: LogItem, *, big_item: bool = False, filename: T.Optional[str] = None):
         """
         Log the *log_item* to terminal and file (`self.log_dir`).
 
@@ -154,7 +152,7 @@ class FederatedLearning(ABC):
         if big_item:
             self.logbook.pop()
             filename = filename or f"log-{log_item.epoch}-{time.strftime('%X')}.pth"
-            io.dump(log_item, self.log_dir / filename, replace=True)
+            atomic_io.dump(log_item, self.log_dir / filename, replace=True)
 
         # Plot metric in tensorboard
         if self.tensorboard:
@@ -167,13 +165,4 @@ class FederatedLearning(ABC):
         # Save the new log_item into logbook.pth.
         # Note that torch.save doesn't support incremental save, we save the whole logbook instead,
         # so do not save any big log_item into logbook.
-        io.dump(self.logbook, self.log_dir / "logbook.pth", replace=True)
-
-    def load(self, checkpoint: ServerCheckpoint):
-        """
-        Load the checkpoint to restore federated learning state. Note that this only restore clients and server, local
-        variables in `algorithm()` would not restore.
-
-        :param checkpoint: An ServerCheckpoint instance.
-        """
-        self.server = checkpoint.server
+        atomic_io.dump(self.logbook, self.log_dir / "logbook.pth", replace=True)
