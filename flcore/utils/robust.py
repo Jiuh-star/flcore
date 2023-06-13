@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import copy
 import math
+import typing as T
 import warnings
 from abc import ABC, abstractmethod
-from typing import Sequence, TypeAlias
 
 import torch
 import torch.nn as nn
 
 from . import model as model_utils
 
-RobustFnReturn: TypeAlias = tuple[list[nn.Module], list[float]]
+RobustFnReturn: T.TypeAlias = tuple[list[nn.Module], list[float]]
 
 
 class RobustFn(ABC):
@@ -23,8 +23,8 @@ class RobustFn(ABC):
     def __call__(
             self,
             global_model: nn.Module,
-            local_models: Sequence[nn.Module],
-            weights: Sequence[float],
+            local_models: T.Sequence[nn.Module],
+            weights: T.Sequence[float],
     ) -> RobustFnReturn:
         ...
 
@@ -42,17 +42,18 @@ class Krum(RobustFn):
     def __call__(
             self,
             global_model: nn.Module,
-            local_models: Sequence[nn.Module],
-            weights: Sequence[float],
+            local_models: T.Sequence[nn.Module],
+            weights: T.Sequence[float],
     ) -> RobustFnReturn:
-        if self.num_remove <= len(local_models):
+        if self.num_remove >= len(local_models):
             raise ValueError(
                 f"Can not remove {self.num_remove} models when there are only {len(local_models)} models."
             )
 
         if 2 * self.num_remove + 2 >= len(local_models):
             warnings.warn(
-                f"There are only {len(local_models)} models, which not satisfy Krum/MultiKrum needs {2 * self.num_remove + 2}."
+                f"There are only {len(local_models)} models, "
+                f"which not satisfy Krum/MultiKrum needs {2 * self.num_remove + 2}."
             )
 
         local_models = list(local_models)
@@ -71,7 +72,7 @@ class Krum(RobustFn):
 
         return selected_models, selected_weights
 
-    def _krum(self, vectors: Sequence[torch.Tensor]) -> int:
+    def _krum(self, vectors: T.Sequence[torch.Tensor]) -> int:
         # Calculate distance between any two vectors
         distances = [
             torch.stack([vector.dist(other) for other in vectors]) for vector in vectors
@@ -104,8 +105,8 @@ class TrimmedMean(RobustFn):
     def __call__(
             self,
             global_model: nn.Module,
-            local_models: Sequence[nn.Module],
-            weights: Sequence[float],
+            local_models: T.Sequence[nn.Module],
+            weights: T.Sequence[float],
     ) -> RobustFnReturn:
         if len(local_models) <= self.num_remove:
             raise ValueError(
@@ -138,8 +139,8 @@ class Median(RobustFn):
     def __call__(
             self,
             global_model: nn.Module,
-            local_models: Sequence[nn.Module],
-            weights: Sequence[float],
+            local_models: T.Sequence[nn.Module],
+            weights: T.Sequence[float],
     ) -> RobustFnReturn:
         local_vectors = [model_utils.model_to_vector(model) for model in local_models]
         median = torch.stack(local_vectors).median(dim=0)[0]
@@ -166,8 +167,8 @@ class Bulyan(RobustFn):
     def __call__(
             self,
             global_model: nn.Module,
-            local_models: Sequence[nn.Module],
-            weights: Sequence[float],
+            local_models: T.Sequence[nn.Module],
+            weights: T.Sequence[float],
     ) -> RobustFnReturn:
         if not len(local_models) >= 4 * self.num_remove + 3:
             warnings.warn(
@@ -176,7 +177,7 @@ class Bulyan(RobustFn):
             )
 
         if self.krum is None:
-            self.krum = Krum(num_remove=len(local_models) - (2 * self.num_remove + 3))
+            self.krum = Krum(num_remove=2 * self.num_remove)
 
         if self.trimmed_mean is None:
             self.trimmed_mean = TrimmedMean(num_remove=2 * self.num_remove)
@@ -200,8 +201,8 @@ class NormBound(RobustFn):
     def __call__(
             self,
             global_model: nn.Module,
-            local_models: Sequence[nn.Module],
-            weights: Sequence[float],
+            local_models: T.Sequence[nn.Module],
+            weights: T.Sequence[float],
     ) -> RobustFnReturn:
         global_vector = model_utils.model_to_vector(global_model)
 

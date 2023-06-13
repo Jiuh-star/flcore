@@ -51,13 +51,14 @@ def get_targets(
             targets.extend(get_targets(_dataset))
         return targets
 
-    # some user may use subset dataset, note that currently we don't support nested subset
-    if isinstance(dataset, data.Subset) and hasattr(dataset.dataset, "targets"):
+    if isinstance(dataset, data.Subset):
         targets = get_targets(dataset.dataset)
         targets = [targets[index] for index in dataset.indices]
         return targets
 
     targets = [get_target(item) for item in dataset]
+    setattr(dataset, "targets", targets)
+
     return targets
 
 

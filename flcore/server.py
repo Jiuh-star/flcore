@@ -7,7 +7,7 @@ import typing as T
 import torch
 import torch.nn as nn
 
-from .client import ClientProtocol, MetricResult
+from .client import Client, MetricResult
 from .utils import model as model_utils
 from .utils.robust import RobustFn
 
@@ -42,10 +42,10 @@ class Server:
         self.max_epoch = max_epoch
         self.learning_rate = learning_rate
         self.robust_fn = robust_fn
-        self.registered_clients: list[ClientProtocol] = []
+        self.registered_clients: list[Client] = []
         self._pool = []
 
-    def register_client(self, client: ClientProtocol):
+    def register_client(self, client: Client):
         """
         Register a client to server.
 
@@ -54,7 +54,7 @@ class Server:
         :raises ValueError: When client is not an available client.
         :raises RuntimeError: When there are duplicated client id.
         """
-        if not isinstance(client, ClientProtocol):
+        if not isinstance(client, Client):
             raise ValueError(f"The client is not an available client.")
 
         if self.get_client(id_=client.id):
@@ -62,7 +62,7 @@ class Server:
 
         self.registered_clients.append(client)
 
-    def unregister_client(self, id_: str) -> ClientProtocol | None:
+    def unregister_client(self, id_: str) -> Client | None:
         """
         Unregister a client in server, return this client.
 
@@ -75,7 +75,7 @@ class Server:
                 return self.registered_clients.pop()
         return None
 
-    def get_client(self, id_: T.Hashable) -> ClientProtocol | None:
+    def get_client(self, id_: T.Hashable) -> Client | None:
         """
         Get the registered client of `id`.
 
@@ -88,7 +88,7 @@ class Server:
                 return client
         return None
 
-    def select_clients(self) -> list[ClientProtocol]:
+    def select_clients(self) -> list[Client]:
         """
         Randomly select ``int(select_ratio * num_registered_clients)`` clients.
 
@@ -99,12 +99,12 @@ class Server:
         return selected_clients
 
     @staticmethod
-    def connect_clients(clients: T.Iterable[ClientProtocol]):
+    def connect_clients(clients: T.Iterable[Client]):
         for client in clients:
             client.connect()
 
     @staticmethod
-    def close_clients(clients: T.Iterable[ClientProtocol]):
+    def close_clients(clients: T.Iterable[Client]):
         for client in clients:
             client.close()
 

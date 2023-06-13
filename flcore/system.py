@@ -5,6 +5,7 @@ import pathlib
 import time
 import typing as T
 from abc import ABC, abstractmethod
+from numbers import Number
 
 import rich.progress
 import rich.repr
@@ -33,7 +34,7 @@ class LogItem:
         yield self.epoch
         yield "message", self.message, ""
         # we only log scalar metrics in terminal to make it clear
-        yield "metrics", {name: value for name, value in self.metrics.items() if isinstance(value, (float, int))}, {}
+        yield "metrics", {name: value for name, value in self.metrics.items() if isinstance(value, Number)}, {}
         yield "other", self.others, {}
 
 
@@ -148,7 +149,7 @@ class FederatedLearning(ABC):
         :param big_item: Save the log item into an independent file.
         :param filename: The filename of big_item
         """
-        self.progress.log(log_item)
+        self.progress.log(log_item, _stack_offset=2)
         self.logbook.append(log_item)
 
         # Save big log_item into an independent file.

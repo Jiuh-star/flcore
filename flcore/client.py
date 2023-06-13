@@ -3,19 +3,18 @@ from __future__ import annotations
 import copy
 import typing as T
 import warnings
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 
 import torch
 import torch.nn as nn
 
-__all__ = ["ClientProtocol", "MetricResult", "Channel"]
+__all__ = ["Client", "MetricResult", "Channel"]
 
 Channel = T.NewType("Channel", T.Any)
 MetricResult = T.NewType("MetricResult", dict[str, float])
 
 
-@T.runtime_checkable
-class ClientProtocol(T.Protocol):
+class Client(ABC):
     """
     The protocol of client. A client is a device that has a local model and can train, evaluate and test the model.
     """
@@ -56,9 +55,15 @@ class ClientProtocol(T.Protocol):
         """
         :return: The local model.
         """
-        if model := self._context.get("model", None):
-            return model
-        raise RuntimeError("The model is not received yet.")
+        _context = getattr(self, "_context", None)
+        if _context is None:
+            raise RuntimeError("The connection is not established yet.")
+
+        model = _context.get("model", None)
+        if model is None:
+            raise RuntimeError("The model is not received yet.")
+
+        return model
 
     def connect(self) -> Channel:
         """

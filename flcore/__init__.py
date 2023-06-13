@@ -1,12 +1,12 @@
 from . import utils
-from .client import ClientProtocol, MetricResult
+from .client import Client, MetricResult
 from .server import Server, EvaluationResult
 from .system import FederatedLearning, LogItem
 
 __version__ = (0, 3, 0)
 
 __all__ = [
-    "ClientProtocol",
+    "Client",
     "MetricResult",
     "Server",
     "FederatedLearning",

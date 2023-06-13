@@ -12,7 +12,7 @@ import flcore.utils.data as data_utils
 from flcore.client import MetricResult
 
 
-class FedAvgClient(flcore.ClientProtocol):
+class FedAvgClient(flcore.Client):
     def __init__(
             self,
             *,
