@@ -71,8 +71,9 @@ class Client(ABC):
 
         :return: The channel to the server.
         """
-        if self._conn_count == 0:
+        if self._conn_count <= 0:
             self._context = {}
+            self._conn_count = 0
 
         self._conn_count += 1
 
